@@ -1,0 +1,15 @@
+# Normalise line endings in the repository. Without this, a Windows working
+# copy records CRLF for every text file, so each checkout rewrites the whole
+# tree and diffs turn into noise.
+* text=auto eol=lf
+
+# Windows-only launcher scripts must stay CRLF to run correctly under cmd.exe.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Gradle wrapper and other binaries: never touch.
+*.jar binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.keystore binary

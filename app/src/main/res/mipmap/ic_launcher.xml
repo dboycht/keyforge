@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  App icon: a keyboard (key cap outline with three key rows and a space bar).
+  A plain vector placed in the default `mipmap` bucket - the launcher always
+  asks for `mipmap/ic_launcher`, and one density-independent vector satisfies
+  that on every screen without per-density bitmaps.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#1B2430"
+        android:pathData="M4,4 h100 v100 h-100 z" />
+    <path
+        android:fillColor="#7BD3F7"
+        android:pathData="M18,34 h72 a6,6 0 0 1 6,6 v28 a6,6 0 0 1 -6,6 h-72 a6,6 0 0 1 -6,-6 v-28 a6,6 0 0 1 6,-6 z" />
+    <path
+        android:fillColor="#1B2430"
+        android:pathData="M22,42 h10 v7 h-10 z M36,42 h10 v7 h-10 z M50,42 h10 v7 h-10 z M64,42 h10 v7 h-10 z M78,42 h8 v7 h-8 z M22,53 h10 v7 h-10 z M36,53 h10 v7 h-10 z M50,53 h10 v7 h-10 z M64,53 h10 v7 h-10 z M78,53 h8 v7 h-8 z M34,64 h40 v6 h-40 z" />
+</vector>

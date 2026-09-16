@@ -1,0 +1,45 @@
+# Gradle / Android build output
+.gradle/
+build/
+app/build/
+captures/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+output.json
+
+# Machine-specific config
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# Machine-local TLS truststore (see gradle.properties): contains this
+# machine's local proxy root certificates. Never publish.
+.certs/
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.vscode/
+out/
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+
+# Development-only docs: kept in the working copy, never pushed.
+DEVELOPMENT.md
+ERROR.md
+HANDOVER.md
+
+# Local scratch
+_scratch/
+_notes/

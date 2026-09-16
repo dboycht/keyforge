@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">键铸</string>
+    <string name="app_name_en" translatable="false">KeyForge</string>
+
+    <string name="probe_title">键铸 · 能力探针</string>
+    <string name="probe_subtitle">KeyForge capability probe</string>
+
+    <string name="probe_run">重新检测</string>
+    <string name="probe_copy">复制全部结果</string>
+    <string name="probe_copied">检测结果已复制到剪贴板</string>
+    <string name="probe_grant">请求蓝牙权限</string>
+    <string name="probe_running">正在检测…</string>
+    <string name="probe_done">检测完成</string>
+    <string name="probe_verdict_title">结论</string>
+</resources>
