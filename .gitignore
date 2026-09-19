@@ -43,3 +43,7 @@ HANDOVER.md
 # Local scratch
 _scratch/
 _notes/
+
+# .NET build output (tools/btprobe - the Windows-side Bluetooth service probe)
+bin/
+obj/
