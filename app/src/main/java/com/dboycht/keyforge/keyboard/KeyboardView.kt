@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,8 +33,9 @@ import androidx.compose.ui.unit.sp
 import com.dboycht.keyforge.layout.KeyKind
 import com.dboycht.keyforge.layout.KeySpec
 import com.dboycht.keyforge.layout.KeyboardLayout
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.launch
 
 /** Width of one key unit; the whole keyboard scales from this single number. */
 internal val KeyUnit = 38.dp
@@ -55,6 +57,22 @@ private val ShiftLabelSize = 10.sp
  */
 private const val KeyRepeatDelayMs = 400L
 private const val KeyRepeatIntervalMs = 60L
+
+private const val HighlightTag = "KeyForgeHighlight"
+
+/**
+ * Diagnostics for the "key stays lit" investigation (ERROR.md E10).
+ *
+ * A missing gesture callback leaves no trace in normal logs, so the highlight state is
+ * logged explicitly. Cheap enough to keep: it only fires when the pressed set changes.
+ */
+private fun traceKeyHighlight(pressed: Set<Int>) {
+    android.util.Log.i(HighlightTag, "pressed-set = $pressed")
+}
+
+private fun traceKeyHighlightEnd(keyCode: Int) {
+    android.util.Log.i(HighlightTag, "gesture ended for keyCode=$keyCode")
+}
 
 /**
  * Renders any [KeyboardLayout] and reports key events to the caller.
@@ -85,6 +103,15 @@ internal fun KeyboardView(
     var latched by remember(layout.id) { mutableStateOf(emptySet<Int>()) }
     // Which key codes currently have a finger down (used for the highlight).
     var pressed by remember(layout.id) { mutableStateOf(emptySet<Int>()) }
+    // Auto-repeat runs in the composable's own scope, so the gesture code below only
+    // reports press/release and never has to manage coroutines.
+    val gestureScope = rememberCoroutineScope()
+    var repeatJob by remember(layout.id) { mutableStateOf<Job?>(null) }
+
+    // Probe for the "key stays lit" bug (ERROR.md E10): the failure is a MISSING
+    // callback, so nothing is logged by default. This records the pressed-set value
+    // whenever it changes, which is the ground truth for the highlight.
+    LaunchedEffect(pressed) { traceKeyHighlight(pressed) }
 
     Column(
         modifier = modifier
@@ -114,15 +141,26 @@ internal fun KeyboardView(
                                 onModifierChanged(key, turningOn)
                             } else {
                                 pressed = pressed + key.keyCode
-                                // Immediate first keystroke; repeats (if this key is
-                                // repeatable) are driven below while the finger stays down.
+                                // Immediate first keystroke; the repeat loop (started
+                                // here for repeatable keys) takes over if the finger stays.
                                 onKeyTap(key)
+                                if (key.supportsAutoRepeat) {
+                                    repeatJob?.cancel()
+                                    repeatJob = gestureScope.launch {
+                                        delay(KeyRepeatDelayMs)
+                                        while (true) {
+                                            onKeyRepeat(key)
+                                            delay(KeyRepeatIntervalMs)
+                                        }
+                                    }
+                                }
                             }
                         },
                         onPressEnd = {
+                            repeatJob?.cancel()
+                            repeatJob = null
                             pressed = pressed - key.keyCode
                         },
-                        onRepeatTick = { onKeyRepeat(key) },
                     )
                 }
             }
@@ -139,7 +177,6 @@ private fun RowScope.KeyBox(
     fingerDown: Boolean,
     onPressStart: () -> Unit,
     onPressEnd: () -> Unit,
-    onRepeatTick: () -> Unit,
 ) {
     val weight = key.widthUnits.coerceAtLeast(0.1f)
     val pressed = if (key.isModifier) lit else fingerDown
@@ -158,36 +195,35 @@ private fun RowScope.KeyBox(
             .fillMaxHeight()
             .background(background, RoundedCornerShape(6.dp))
             .pointerInput(key.keyCode) {
-                detectTapGestures(
-                    onPress = {
+                // Raw pointer handling instead of detectTapGestures.
+                //
+                // Why: detectTapGestures reports "the press ended" by CANCELLING the
+                // onPress coroutine, and clearing the highlight in a `finally` there
+                // proved unreliable for quick taps (measured: a 150 ms press left the
+                // key stuck lit, while 600 ms+ was fine). Here the release is an
+                // explicit branch in the same code path as the press, so the highlight
+                // is cleared by a normal statement - no cancellation semantics involved.
+                awaitPointerEventScope {
+                    while (true) {
+                        val down = awaitPointerEvent()
+                        if (down.changes.none { it.pressed }) continue
+
                         onPressStart()
+                        val pointerId = down.changes.first { it.pressed }.id
                         try {
-                            if (key.supportsAutoRepeat) {
-                                // Wait for the finger to stay down before repeating, but
-                                // WITHOUT blocking the release: a plain `delay()` here gets
-                                // cancelled when the gesture ends, and if the clearing code
-                                // sat after it, the key would stay stuck in the pressed
-                                // state - which is exactly the bug users reported.
-                                val stillDown = withTimeoutOrNull(KeyRepeatDelayMs) {
-                                    tryAwaitRelease()
-                                    true
-                                }
-                                if (stillDown == true) {
-                                    while (true) {
-                                        onRepeatTick()
-                                        delay(KeyRepeatIntervalMs)
-                                    }
-                                }
-                            } else {
-                                tryAwaitRelease()
+                            // Stay until this pointer lifts.
+                            while (true) {
+                                val move = awaitPointerEvent()
+                                if (move.changes.none { it.id == pointerId && it.pressed }) break
                             }
                         } finally {
-                            // Always runs, including when the gesture is cancelled: the
-                            // highlight must never outlive the touch.
+                            // Normal statement, not a cancellation side effect: this is
+                            // the fix for "the key stays lit" (ERROR.md E10).
                             onPressEnd()
+                            traceKeyHighlightEnd(key.keyCode)
                         }
-                    },
-                )
+                    }
+                }
             },
         contentAlignment = Alignment.Center,
     ) {
