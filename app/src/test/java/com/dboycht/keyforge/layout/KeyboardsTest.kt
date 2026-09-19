@@ -93,4 +93,21 @@ class KeyboardsTest {
         assertEquals(":", semicolon.shiftLabel)
         assertNotNull(Keyboards.PC_60.allKeys.first { it.label == "Space" }.usage)
     }
+
+    @Test
+    fun `phone layout has exactly one shift key`() {
+        // Regression: an earlier revision shipped two Shift keys (one per letter row),
+        // which is confusing to use and was visible in the on-device screenshot.
+        val shifts = Keyboards.PHONE_STYLE.allKeys.count { it.label == "Shift" }
+        assertEquals(1, shifts)
+    }
+
+    @Test
+    fun `every layout row shows at most twelve keys so labels stay readable`() {
+        // A data-level guard for "don't cram": the phone screen is ~2412px wide in
+        // landscape, and a 15-key row is only fine for the 60% layout.
+        Keyboards.PHONE_STYLE.rows.forEachIndexed { index, row ->
+            assertTrue("phone row $index has ${row.size} keys", row.size <= 12)
+        }
+    }
 }

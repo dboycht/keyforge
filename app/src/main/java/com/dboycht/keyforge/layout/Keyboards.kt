@@ -126,7 +126,8 @@ internal object Keyboards {
                 key("u", KeyEvent.KEYCODE_U), key("i", KeyEvent.KEYCODE_I),
                 key("o", KeyEvent.KEYCODE_O), key("p", KeyEvent.KEYCODE_P),
             ),
-            // Shift(1) + a..l(9) = 10
+            // Shift(1) + a..l(9) = 10. The ONLY Shift: the thumb reaches it while the
+            // other hand keeps typing, and one Shift keeps the layout unambiguous.
             listOf(
                 modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT, widthUnits = 1f),
                 key("a", KeyEvent.KEYCODE_A), key("s", KeyEvent.KEYCODE_S),
@@ -135,16 +136,15 @@ internal object Keyboards {
                 key("j", KeyEvent.KEYCODE_J), key("k", KeyEvent.KEYCODE_K),
                 key("l", KeyEvent.KEYCODE_L),
             ),
-            // Shift(1.5) + z..m(7) + , . / (3 * 0.5) = 10
+            // z..m(7) + , . / (3 * 1) = 10 (no Shift on this row)
             listOf(
-                modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT, widthUnits = 1.5f),
                 key("z", KeyEvent.KEYCODE_Z), key("x", KeyEvent.KEYCODE_X),
                 key("c", KeyEvent.KEYCODE_C), key("v", KeyEvent.KEYCODE_V),
                 key("b", KeyEvent.KEYCODE_B), key("n", KeyEvent.KEYCODE_N),
                 key("m", KeyEvent.KEYCODE_M),
-                key(",", KeyEvent.KEYCODE_COMMA, widthUnits = 0.5f, shiftLabel = "<"),
-                key(".", KeyEvent.KEYCODE_PERIOD, widthUnits = 0.5f, shiftLabel = ">"),
-                key("/", KeyEvent.KEYCODE_SLASH, widthUnits = 0.5f, shiftLabel = "?"),
+                key(",", KeyEvent.KEYCODE_COMMA, shiftLabel = "<"),
+                key(".", KeyEvent.KEYCODE_PERIOD, shiftLabel = ">"),
+                key("/", KeyEvent.KEYCODE_SLASH, shiftLabel = "?"),
             ),
             // Ctrl(1.25) + Space(4) + Tab(1.25) + Bksp(1.25) + Enter(1.25) + -(1) = 10
             listOf(
