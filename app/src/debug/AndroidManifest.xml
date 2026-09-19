@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug-only overlay.
+
+  Adds a receiver that lets the dev harness drive the keyboard session from adb
+  (see the project DEVELOPMENT.md section 4.2 for the exact command line).
+
+  This exists because the real deliverable is a RELEASE build, and adb is not
+  allowed to talk to its non-exported service or activity ("Requires permission
+  not exported from uid ..."). Rather than weakening the release artifact, the
+  hook lives here and is merged only into debug builds.
+
+  The receiver is exported because `am broadcast` runs as the shell user, and it
+  is protected by a signature-level permission so that nothing else on the device
+  can inject keystrokes.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <permission
+        android:name="com.dboycht.keyforge.permission.DEBUG_TYPE"
+        android:protectionLevel="signature" />
+
+    <uses-permission android:name="com.dboycht.keyforge.permission.DEBUG_TYPE" />
+
+    <application>
+        <receiver
+            android:name=".keyboard.DebugTypeReceiver"
+            android:exported="true"
+            android:permission="com.dboycht.keyforge.permission.DEBUG_TYPE">
+            <intent-filter>
+                <action android:name="com.dboycht.keyforge.action.DEBUG_TYPE" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

@@ -16,4 +16,23 @@
 
     <string name="keyboard_title">键铸 · 键盘</string>
     <string name="probe_open_keyboard">打开键盘（最小验证）</string>
+
+    <!-- Ongoing session notification (foreground service) -->
+    <string name="session_channel_name">键盘会话</string>
+    <string name="session_channel_description">键盘连接期间显示，可随时断开</string>
+    <string name="session_title_idle">键盘已停止</string>
+    <string name="session_title_connecting">正在注册为键盘…</string>
+    <string name="session_title_ready">键盘已就绪，等待连接</string>
+    <string name="session_title_connected">键盘已连接</string>
+    <string name="session_title_no_permission">缺少蓝牙权限</string>
+    <string name="session_title_bt_off">蓝牙未开启</string>
+    <string name="session_title_unsupported">本机不支持蓝牙键盘</string>
+    <string name="session_title_failed">键盘注册失败</string>
+    <string name="session_text_hosts">已连接：%1$s</string>
+    <string name="session_text_waiting">在键盘页面选择要连接的设备</string>
+    <string name="session_text_enable_bt">请打开蓝牙后重试</string>
+    <string name="session_text_grant">请在键盘页面授予蓝牙权限</string>
+    <string name="session_text_starting">正在启动会话…</string>
+    <string name="session_action_disconnect">断开</string>
+    <string name="session_action_stop">停止</string>
 </resources>

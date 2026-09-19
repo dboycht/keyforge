@@ -22,6 +22,12 @@
          the probe can be granted it on Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- The keyboard session must survive leaving the app, so it runs as a
+         foreground service of the "connected device" kind (Android 14+ requires the
+         type-specific permission too). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+
     <uses-feature
         android:name="android.hardware.bluetooth"
         android:required="true" />
@@ -55,6 +61,18 @@
             android:exported="false"
             android:screenOrientation="sensorLandscape"
             android:label="@string/keyboard_title" />
+
+        <!-- Owns the single HID registration and the host connection, so the
+             keyboard keeps working after the user leaves the screen. -->
+        <service
+            android:name=".keyboard.KeyboardService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice"
+            android:label="@string/keyboard_title">
+            <intent-filter>
+                <action android:name="android.bluetooth.BluetoothHidDevice" />
+            </intent-filter>
+        </service>
     </application>
 
 </manifest>

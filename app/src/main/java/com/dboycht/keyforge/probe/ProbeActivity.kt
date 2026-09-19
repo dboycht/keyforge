@@ -66,15 +66,6 @@ import kotlinx.coroutines.withContext
  */
 class ProbeActivity : ComponentActivity() {
 
-    /**
-     * The HID app registration is a single global slot: while the probe holds it,
-     * the keyboard session can not register (`registerApp` returns false and no
-     * `onAppStatusChanged(registered=true)` arrives). Leaving the probe screen
-     * therefore unregisters, and coming back re-runs the probe, which registers
-     * again through the same path.
-     */
-    private var registeredProxy: android.bluetooth.BluetoothHidDevice? = null
-
     private val requiredPermissions = buildList {
         add(Manifest.permission.BLUETOOTH_CONNECT)
         add(Manifest.permission.BLUETOOTH_SCAN)
@@ -97,28 +88,20 @@ class ProbeActivity : ComponentActivity() {
                         askForPermissions = {
                             requestPermissions.launch(requiredPermissions)
                         },
-                        onProxyObtained = { proxy -> registeredProxy = proxy },
                     )
                 }
             }
         }
     }
 
-    override fun onStop() {
-        // Free the single global HID registration slot for other screens (the
-        // minimal keyboard) and for the next probe run.
-        registeredProxy?.let { proxy ->
-            runCatching { proxy.unregisterApp() }
-        }
-        registeredProxy = null
-        super.onStop()
-    }
+    // No onStop cleanup: the probe never registers when a keyboard session is live
+    // (see BluetoothHidProbe step 6), and when it does register it is the only
+    // owner. The foreground service owns the long-lived registration.
 }
 
 @Composable
 private fun ProbeScreen(
     askForPermissions: () -> Unit,
-    onProxyObtained: (android.bluetooth.BluetoothHidDevice) -> Unit = {},
 ) {
     val context = LocalContext.current
     var report by remember { mutableStateOf<ProbeReport?>(null) }
@@ -143,7 +126,7 @@ private fun ProbeScreen(
         if (!permissionsMissing) {
             running = true
             report = withContext(Dispatchers.IO) {
-                BluetoothHidProbe.run(context, onProxyObtained)
+                BluetoothHidProbe.run(context)
             }
             running = false
         }

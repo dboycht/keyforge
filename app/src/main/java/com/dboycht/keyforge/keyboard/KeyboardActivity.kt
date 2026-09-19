@@ -1,9 +1,13 @@
 package com.dboycht.keyforge.keyboard
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -45,11 +49,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.dboycht.keyforge.layout.Keyboards
 import com.dboycht.keyforge.layout.KeyboardLayout
-import com.dboycht.keyforge.session.AndroidSessionClock
 import com.dboycht.keyforge.session.HidSession
+import com.dboycht.keyforge.session.HidSessionManager
 import com.dboycht.keyforge.session.PairedDevice
 import com.dboycht.keyforge.session.SessionPhase
 import com.dboycht.keyforge.session.SessionResult
@@ -70,14 +75,19 @@ class KeyboardActivity : ComponentActivity() {
 
     private lateinit var session: HidSession
 
+    /** Android 13+ needs POST_NOTIFICATIONS for the ongoing session notification. */
+    private val notificationPermission = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* Denied is acceptable: the session still runs, only the notice is hidden. */ }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        session = HidSession(
-            context = applicationContext,
-            clock = AndroidSessionClock(),
-            onEvent = { /* the state flow carries the log to the UI */ },
-        )
+        // The service owns the session and the single HID registration; this screen
+        // only observes it and sends keys.
+        session = HidSessionManager.get(this)
+        KeyboardService.start(this)
+        ensureNotificationPermission()
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -88,8 +98,17 @@ class KeyboardActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        session.stop()
+        // Deliberately NOT stopping the session here: it lives in KeyboardService so
+        // the keyboard survives leaving this screen. Use the notification's "stop"
+        // action (or the in-app button) to end a session.
         super.onDestroy()
+    }
+
+    private fun ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 }
 
