@@ -117,6 +117,11 @@ private fun KeyboardScreen(session: HidSession) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    // ONE worker, not a thread pool: auto-repeat queues a keystroke every ~60 ms, and
+    // running those concurrently let several threads into the session's shared state
+    // (that crashed the process - see ERROR.md E9). Serialising them also keeps
+    // keystroke order, which is what typing means.
+    val keyDispatcher = remember { Dispatchers.Default.limitedParallelism(1) }
     val state by session.state.collectAsState()
     // Which layout is on screen. Switching is a data change: the renderer below is
     // the same for both.
@@ -130,7 +135,7 @@ private fun KeyboardScreen(session: HidSession) {
 
     fun run(action: suspend () -> SessionResult) {
         scope.launch {
-            val result = withContext(Dispatchers.Default) { action() }
+            val result = withContext(keyDispatcher) { action() }
             lastResult = when (result) {
                 is SessionResult.Ok -> "OK: ${result.detail}"
                 is SessionResult.Rejected -> "REJECTED: ${result.reason}"
@@ -188,13 +193,19 @@ private fun KeyboardScreen(session: HidSession) {
                 // Ordinary key: one tap = one keystroke, nothing stays held.
                 onKeyTap = { key ->
                     key.usage?.let { usage ->
-                        scope.launch(Dispatchers.Default) { session.tapKey(key.keyCode, usage) }
+                        scope.launch(keyDispatcher) { session.tapKey(key.keyCode, usage) }
+                    }
+                },
+                // Holding Backspace / an arrow key keeps sending, like a real keyboard.
+                onKeyRepeat = { key ->
+                    key.usage?.let { usage ->
+                        scope.launch(keyDispatcher) { session.tapKey(key.keyCode, usage) }
                     }
                 },
                 // Modifier: latch on/off, and hold it down for as long as it is latched.
                 onModifierChanged = { key, on ->
                     key.usage?.let { usage ->
-                        scope.launch(Dispatchers.Default) {
+                        scope.launch(keyDispatcher) {
                             if (on) session.pressKey(key.keyCode, usage)
                             else session.releaseKey(key.keyCode, usage)
                         }

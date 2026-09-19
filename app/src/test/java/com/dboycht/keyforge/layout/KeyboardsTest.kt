@@ -1,6 +1,7 @@
 package com.dboycht.keyforge.layout
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -109,5 +110,43 @@ class KeyboardsTest {
         Keyboards.PHONE_STYLE.rows.forEachIndexed { index, row ->
             assertTrue("phone row $index has ${row.size} keys", row.size <= 12)
         }
+    }
+
+    @Test
+    fun `editing and navigation keys support auto repeat, letters do not`() {
+        // Holding Backspace must delete continuously (user feedback), while holding a
+        // letter must not spray characters.
+        val repeatable = listOf(
+            android.view.KeyEvent.KEYCODE_DEL,
+            android.view.KeyEvent.KEYCODE_FORWARD_DEL,
+            android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+            android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+            android.view.KeyEvent.KEYCODE_DPAD_UP,
+            android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+            android.view.KeyEvent.KEYCODE_SPACE,
+        )
+        repeatable.forEach { code ->
+            val key = KeySpec("x", code)
+            assertTrue("keyCode $code should auto-repeat", key.supportsAutoRepeat)
+        }
+
+        val notRepeatable = listOf(
+            android.view.KeyEvent.KEYCODE_A,
+            android.view.KeyEvent.KEYCODE_Z,
+            android.view.KeyEvent.KEYCODE_1,
+            android.view.KeyEvent.KEYCODE_ENTER,
+            android.view.KeyEvent.KEYCODE_TAB,
+            android.view.KeyEvent.KEYCODE_SEMICOLON,
+        )
+        notRepeatable.forEach { code ->
+            val key = KeySpec("x", code)
+            assertFalse("keyCode $code must not auto-repeat", key.supportsAutoRepeat)
+        }
+    }
+
+    @Test
+    fun `the 60 percent layout has a backspace that can auto repeat`() {
+        val backspace = Keyboards.PC_60.allKeys.first { it.label == "Bksp" }
+        assertTrue("Bksp must auto-repeat", backspace.supportsAutoRepeat)
     }
 }

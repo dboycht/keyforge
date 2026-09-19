@@ -27,6 +27,26 @@ internal data class KeySpec(
 
     val isModifier: Boolean
         get() = com.dboycht.keyforge.hid.HidKeyMap.isModifierKeyCode(keyCode)
+
+    /**
+     * Whether holding this key should auto-repeat.
+     *
+     * Backspace, the arrow keys and space are the keys people hold down in real use
+     * ("hold Backspace to delete a word"); letters are not, and repeating them would
+     * make an accidental long press spray characters.
+     */
+    val supportsAutoRepeat: Boolean
+        get() = when (keyCode) {
+            KeyEvent.KEYCODE_DEL,
+            KeyEvent.KEYCODE_FORWARD_DEL,
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_SPACE,
+            -> true
+            else -> false
+        }
 }
 
 /** What a key is for, so the renderer can shade it without knowing key codes. */

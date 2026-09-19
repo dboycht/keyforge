@@ -83,6 +83,24 @@ internal class HidSession(
     private val throttle = ReportThrottle(clock)
     private val events = ArrayDeque<String>()
 
+    /**
+     * Serialises everything that touches [keyboard] / [throttle] / [events].
+     *
+     * Why this exists: the UI sends keys from coroutines, and auto-repeat fires
+     * them in rapid succession. Without a lock several threads mutated the keyboard
+     * state and the throttle at once, which crashed the process
+     * (`NegativeArraySizeException` inside the Compose snapshot machinery - see
+     * `ERROR.md` E9). One lock, held for short non-blocking sections, is enough: a
+     * report is built and handed to the stack, nothing slow happens inside.
+     */
+    private val reportLock = Any()
+
+    /** Pending auto-repeat burst: usage being repeated, its key code and the count. */
+    private var burstUsage: Int? = null
+    private var burstKeyCode: Int = 0
+    private var burstCount: Int = 0
+    private var burstFlush: Cancellable? = null
+
     private var adapter: BluetoothAdapter? = null
     private var proxy: BluetoothHidDevice? = null
     private var registered = false
@@ -275,16 +293,25 @@ internal class HidSession(
         val targets = deviceTargets()
         if (targets.isEmpty()) return SessionResult.Rejected("no host connected - press Connect first")
 
-        val press = keyboard.press(usage)
-        if (press.dropped) {
-            event("tap(0x%02X) dropped: %s".format(usage, press.reason))
-            return SessionResult.Rejected(press.reason ?: "report full")
+        val down: Boolean
+        synchronized(reportLock) {
+            val press = keyboard.press(usage)
+            if (press.dropped) {
+                event("tap(0x%02X) dropped: %s".format(usage, press.reason))
+                return SessionResult.Rejected(press.reason ?: "report full")
+            }
+            down = targets.all { send(hid, it, press.report) }
         }
-        val down = targets.all { send(hid, it, press.report) }
+        // The throttle gap is deliberately OUTSIDE the lock: it is the point of the
+        // gap that the up report lands later, and sleeping while holding the lock
+        // would block other keys for no reason.
         awaitThrottleSlot()
-        val up = targets.all { send(hid, it, keyboard.release(usage).report) }
+        val up: Boolean
+        synchronized(reportLock) {
+            up = targets.all { send(hid, it, keyboard.release(usage).report) }
+        }
         if (!down || !up) return SessionResult.Rejected("sendReport failed (see log)")
-        event("tap  ${keyName(keyCode)} usage=0x%02X".format(usage))
+        noteBurst(keyCode, usage)
         return SessionResult.Ok("tapped 0x%02X".format(usage))
     }
 
@@ -328,12 +355,15 @@ internal class HidSession(
         val targets = deviceTargets()
         if (targets.isEmpty()) return SessionResult.Rejected("no host connected - press Connect first")
 
-        val press = keyboard.press(usage)
-        if (press.dropped) {
-            event("press(0x%02X) dropped: %s".format(usage, press.reason))
-            return SessionResult.Rejected(press.reason ?: "report full")
+        val ok: Boolean
+        synchronized(reportLock) {
+            val press = keyboard.press(usage)
+            if (press.dropped) {
+                event("press(0x%02X) dropped: %s".format(usage, press.reason))
+                return SessionResult.Rejected(press.reason ?: "report full")
+            }
+            ok = targets.all { send(hid, it, press.report) }
         }
-        val ok = targets.all { send(hid, it, press.report) }
         if (!ok) return SessionResult.Rejected("sendReport failed (see log)")
         event("down ${keyName(keyCode)} usage=0x%02X".format(usage))
         return SessionResult.Ok("pressed 0x%02X".format(usage))
@@ -345,8 +375,11 @@ internal class HidSession(
         val targets = deviceTargets()
         if (targets.isEmpty()) return SessionResult.Rejected("no host connected")
 
-        val released = keyboard.release(usage)
-        val ok = targets.all { send(hid, it, released.report) }
+        val ok: Boolean
+        synchronized(reportLock) {
+            val released = keyboard.release(usage)
+            ok = targets.all { send(hid, it, released.report) }
+        }
         if (!ok) return SessionResult.Rejected("sendReport failed (see log)")
         event("up   ${keyName(keyCode)} usage=0x%02X".format(usage))
         return SessionResult.Ok("released 0x%02X".format(usage))
@@ -357,8 +390,11 @@ internal class HidSession(
         val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
         val targets = deviceTargets()
         if (targets.isEmpty()) return SessionResult.Rejected("no host connected")
-        val report = keyboard.releaseAll()
-        val ok = targets.all { send(hid, it, report) }
+        val ok: Boolean
+        synchronized(reportLock) {
+            val report = keyboard.releaseAll()
+            ok = targets.all { send(hid, it, report) }
+        }
         event("releaseAll -> $ok")
         return if (ok) SessionResult.Ok("all keys released") else SessionResult.Rejected("sendReport failed")
     }
@@ -472,6 +508,41 @@ internal class HidSession(
         onEvent(line)
     }
 
+    /**
+     * Starts (or extends) a burst of identical keystrokes.
+     *
+     * Auto-repeat produces a report every ~60 ms. Logging each one scrolls the
+     * on-screen log faster than it can be read, so a burst is summarised once it
+     * ends ("tap KEYCODE_DEL x40") instead of line by line. The full stream is still
+     * available through `adb logcat` (see [event]).
+     */
+    private fun noteBurst(keyCode: Int, usage: Int) {
+        if (burstUsage == usage) {
+            burstCount++
+        } else {
+            flushBurst()
+            burstUsage = usage
+            burstKeyCode = keyCode
+            burstCount = 1
+        }
+        burstFlush?.cancel()
+        burstFlush = clock.schedule(BURST_IDLE_MS) { flushBurst() }
+    }
+
+    /** Emits the pending burst summary, if any. */
+    private fun flushBurst() {
+        val usage = burstUsage ?: return
+        val count = burstCount
+        val keyCode = burstKeyCode
+        burstUsage = null
+        burstCount = 0
+        burstFlush?.cancel()
+        burstFlush = null
+        if (count > 1) {
+            event("连发 ${keyName(keyCode)} usage=0x%02X ×$count".format(usage))
+        }
+    }
+
     private fun hasConnectPermission(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
             PackageManager.PERMISSION_GRANTED
@@ -493,6 +564,9 @@ internal class HidSession(
 
     private companion object {
         const val MAX_EVENTS = 200
+
+        /** Quiet time after which an auto-repeat burst is summarised into one log line. */
+        const val BURST_IDLE_MS = 350L
 
         /** How long to wait for onAppStatusChanged before assuming a stale registration. */
         const val REGISTER_CONFIRM_DELAY_MS = 1_500L

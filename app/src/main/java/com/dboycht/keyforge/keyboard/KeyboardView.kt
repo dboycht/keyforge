@@ -32,6 +32,9 @@ import androidx.compose.ui.unit.sp
 import com.dboycht.keyforge.layout.KeyKind
 import com.dboycht.keyforge.layout.KeySpec
 import com.dboycht.keyforge.layout.KeyboardLayout
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 /** Width of one key unit; the whole keyboard scales from this single number. */
 internal val KeyUnit = 38.dp
@@ -47,28 +50,42 @@ private val KeyLabelSize = 14.sp
 private val ShiftLabelSize = 10.sp
 
 /**
+ * Auto-repeat timing for keys that support it. 400 ms before the first repeat is the
+ * familiar desktop default (long enough that a deliberate press does not double up),
+ * then 60 ms apart - roughly 16 keystrokes/second while held.
+ */
+private const val KeyRepeatDelayMs = 400L
+private const val KeyRepeatIntervalMs = 60L
+
+/**
  * Renders any [KeyboardLayout] and reports key events to the caller.
  *
- * Two different key semantics, matching what a soft keyboard must do:
- * - **ordinary keys**: a tap is one keystroke (`onKeyTap`). The key must NOT stay
- *   down after the finger lifts - users read a held-down key as a bug ("I tapped it
- *   and it is still pressed"). Repeated characters come from repeated taps.
- * - **modifier keys**: a latch (`onKeyDown` to latch, `onKeyUp` to unlatch) with the
- *   visual state following the latch, because "hold Shift while typing a letter" is
- *   a real need and a touch screen cannot hold a modifier reliably.
+ * Three key behaviours, matching a soft keyboard that must stay usable:
+ * - **ordinary keys**: a tap is one keystroke ([onKeyTap]). The key must NOT stay
+ *   lit after the finger lifts - a stuck-looking key reads as a bug. Repeated
+ *   characters come from repeated taps.
+ * - **repeatable keys** (Backspace, arrows, space...): tap once immediately, and
+ *   if the finger stays down, keep sending after a short delay - holding Backspace
+ *   must delete continuously, exactly like a hardware keyboard.
+ * - **modifier keys**: a latch ([onModifierChanged]) with the highlight following
+ *   the latch, because "hold Shift while typing a letter" is a real need and a
+ *   touch screen cannot hold a modifier reliably.
  *
  * The view knows nothing about HID: it only asks `key.usage` whether a key is a
- * modifier. Turning a tap into reports lives in the session layer.
+ * modifier. Turning a press into reports lives in the session layer.
  */
 @Composable
 internal fun KeyboardView(
     layout: KeyboardLayout,
     modifier: Modifier = Modifier,
     onKeyTap: (KeySpec) -> Unit = {},
+    onKeyRepeat: (KeySpec) -> Unit = {},
     onModifierChanged: (KeySpec, Boolean) -> Unit = { _, _ -> },
 ) {
     // Latched modifiers (tap once = on, tap again = off).
     var latched by remember(layout.id) { mutableStateOf(emptySet<Int>()) }
+    // Which key codes currently have a finger down (used for the highlight).
+    var pressed by remember(layout.id) { mutableStateOf(emptySet<Int>()) }
 
     Column(
         modifier = modifier
@@ -89,19 +106,24 @@ internal fun KeyboardView(
                     KeyBox(
                         key = key,
                         lit = lit,
-                        // A modifier lights up for as long as it is latched; an
-                        // ordinary key lights up only while the finger is down.
-                        momentary = !isModifier,
-                        onTap = {
+                        fingerDown = key.keyCode in pressed,
+                        onPressStart = {
                             if (isModifier) {
                                 val usage = key.usage ?: return@KeyBox
                                 val turningOn = usage !in latched
                                 latched = if (turningOn) latched + usage else latched - usage
                                 onModifierChanged(key, turningOn)
                             } else {
+                                pressed = pressed + key.keyCode
+                                // Immediate first keystroke; repeats (if this key is
+                                // repeatable) are driven below while the finger stays down.
                                 onKeyTap(key)
                             }
                         },
+                        onPressEnd = {
+                            pressed = pressed - key.keyCode
+                        },
+                        onRepeatTick = { onKeyRepeat(key) },
                     )
                 }
             }
@@ -112,15 +134,16 @@ internal fun KeyboardView(
 @Composable
 private fun RowScope.KeyBox(
     key: KeySpec,
+    /** Latched modifier: highlight follows the latch, not the finger. */
     lit: Boolean,
-    /** True: highlight only while the finger is down. False: highlight while latched. */
-    momentary: Boolean,
-    onTap: () -> Unit,
+    /** Finger currently down on this key (highlight for non-modifiers). */
+    fingerDown: Boolean,
+    onPressStart: () -> Unit,
+    onPressEnd: () -> Unit,
+    onRepeatTick: () -> Unit,
 ) {
     val weight = key.widthUnits.coerceAtLeast(0.1f)
-    // A momentary key tracks the finger; a latching key tracks its own state.
-    var fingerDown by remember(key.keyCode) { mutableStateOf(false) }
-    val pressed = if (momentary) fingerDown else lit
+    val pressed = if (key.isModifier) lit else fingerDown
 
     val background = when {
         pressed -> MaterialTheme.colorScheme.primary
@@ -138,13 +161,23 @@ private fun RowScope.KeyBox(
             .pointerInput(key.keyCode) {
                 detectTapGestures(
                     onPress = {
-                        fingerDown = true
-                        // Fire on press so the keystroke does not wait for the finger
-                        // to lift (a soft keyboard must feel immediate), then always
-                        // clear the highlight - even if the gesture is cancelled.
-                        onTap()
+                        onPressStart()
+                        // Fire one keystroke immediately, then auto-repeat while the
+                        // finger stays down (the familiar hardware-keyboard feel that
+                        // makes "hold Backspace to delete" work).
+                        if (key.supportsAutoRepeat) {
+                            delay(KeyRepeatDelayMs)
+                            // coroutineContext.isActive is false as soon as the gesture
+                            // is cancelled (finger lifted / pointer lost), which is what
+                            // ends the repeat loop.
+                            while (currentCoroutineContext().isActive) {
+                                onRepeatTick()
+                                delay(KeyRepeatIntervalMs)
+                            }
+                        }
+                        // tryAwaitRelease() cancels the loop above when the finger lifts.
                         tryAwaitRelease()
-                        fingerDown = false
+                        onPressEnd()
                     },
                 )
             },
