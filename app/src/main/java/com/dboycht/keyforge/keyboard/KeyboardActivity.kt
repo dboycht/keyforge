@@ -18,11 +18,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -45,9 +46,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.dboycht.keyforge.layout.Keyboards
+import com.dboycht.keyforge.layout.KeyboardLayout
 import com.dboycht.keyforge.session.AndroidSessionClock
 import com.dboycht.keyforge.session.HidSession
-import com.dboycht.keyforge.session.KeyboardKey
 import com.dboycht.keyforge.session.PairedDevice
 import com.dboycht.keyforge.session.SessionPhase
 import com.dboycht.keyforge.session.SessionResult
@@ -97,7 +99,9 @@ private fun KeyboardScreen(session: HidSession) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     val state by session.state.collectAsState()
-    val keys = remember { KeyboardKey.minimalSet() }
+    // Which layout is on screen. Switching is a data change: the renderer below is
+    // the same for both.
+    var layout by remember { mutableStateOf(Keyboards.PC_60) }
     var lastResult by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(lifecycleOwner) {
@@ -120,7 +124,10 @@ private fun KeyboardScreen(session: HidSession) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                // The keyboard plus the diagnostics do not fit a 1080p landscape
+                // screen, so the whole page scrolls instead of clipping the grid.
+                .verticalScroll(rememberScrollState()),
         ) {
             Text(
                 text = "键铸 · 键盘（最小验证）",
@@ -142,37 +149,33 @@ private fun KeyboardScreen(session: HidSession) {
             HostRow(session, state.pairedDevices) { device -> run { session.connect(device.device) } }
 
             Spacer(Modifier.height(10.dp))
-            Text(
-                text = "发送按键（需要先连接成功）",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            LayoutPicker(
+                current = layout,
+                onPick = { picked ->
+                    layout = picked
+                    // A layout switch while keys are down would leave them stuck:
+                    // release everything before the new grid appears.
+                    run { session.releaseAll() }
+                },
             )
-            Row(
+            KeyboardView(
+                layout = layout,
+                // Fixed height on purpose: with `weight` the grid collapsed to zero
+                // (the rows could not resolve a height inside this column). The
+                // value is derived from the key unit x row count so both layouts fit.
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                keys.forEach { key ->
-                    val usage = key.usage
-                    OutlinedButton(
-                        onClick = {
-                            if (usage != null) run { session.sendKey(key.keyCode, usage) }
-                        },
-                        enabled = usage != null,
-                    ) {
-                        Text(if (key.isModifier) "${key.label}*" else key.label)
+                    .height(KeyboardGridHeight),
+                onKeyDown = { key ->
+                    key.usage?.let { usage ->
+                        scope.launch(Dispatchers.Default) { session.pressKey(key.keyCode, usage) }
                     }
-                }
-                OutlinedButton(onClick = { run { session.releaseAll() } }) {
-                    Text("全松")
-                }
-            }
-            Text(
-                text = "带 * 的是修饰键（走报文的修饰字节，不占键槽）",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                },
+                onKeyUp = { key ->
+                    key.usage?.let { usage ->
+                        scope.launch(Dispatchers.Default) { session.releaseKey(key.keyCode, usage) }
+                    }
+                },
             )
 
             Spacer(Modifier.height(10.dp))
@@ -184,7 +187,7 @@ private fun KeyboardScreen(session: HidSession) {
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f),
+                    .height(150.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 shape = RoundedCornerShape(10.dp),
             ) {
@@ -199,6 +202,33 @@ private fun KeyboardScreen(session: HidSession) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LayoutPicker(current: KeyboardLayout, onPick: (KeyboardLayout) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "布局",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Keyboards.all.forEach { candidate ->
+            FilterChip(
+                selected = candidate.id == current.id,
+                onClick = { onPick(candidate) },
+                label = { Text(candidate.displayName) },
+            )
+        }
+        Text(
+            text = "（切换布局会先松开所有按键）",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -249,7 +279,7 @@ private fun HostRow(
                 color = WarnAmber,
             )
         }
-        LazyColumn(modifier = Modifier.heightIn(max = 128.dp)) {
+        LazyColumn(modifier = Modifier.heightIn(max = 96.dp)) {
             items(paired) { device ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),

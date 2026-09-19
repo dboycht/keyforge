@@ -289,6 +289,42 @@ internal class HidSession(
         return SessionResult.Ok("sent 0x%02X".format(usage))
     }
 
+    /**
+     * Presses a key and leaves it held; pair with [releaseKey].
+     *
+     * A real keyboard layout needs this: holding Shift while pressing `a` is one
+     * gesture with two fingers, so the UI must be able to commit the modifier
+     * first and keep it down across other keys.
+     */
+    fun pressKey(keyCode: Int, usage: Int): SessionResult {
+        val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
+        val targets = deviceTargets()
+        if (targets.isEmpty()) return SessionResult.Rejected("no host connected - press Connect first")
+
+        val press = keyboard.press(usage)
+        if (press.dropped) {
+            event("press(0x%02X) dropped: %s".format(usage, press.reason))
+            return SessionResult.Rejected(press.reason ?: "report full")
+        }
+        val ok = targets.all { send(hid, it, press.report) }
+        if (!ok) return SessionResult.Rejected("sendReport failed (see log)")
+        event("down ${keyName(keyCode)} usage=0x%02X".format(usage))
+        return SessionResult.Ok("pressed 0x%02X".format(usage))
+    }
+
+    /** Releases a key previously pressed with [pressKey]. */
+    fun releaseKey(keyCode: Int, usage: Int): SessionResult {
+        val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
+        val targets = deviceTargets()
+        if (targets.isEmpty()) return SessionResult.Rejected("no host connected")
+
+        val released = keyboard.release(usage)
+        val ok = targets.all { send(hid, it, released.report) }
+        if (!ok) return SessionResult.Rejected("sendReport failed (see log)")
+        event("up   ${keyName(keyCode)} usage=0x%02X".format(usage))
+        return SessionResult.Ok("released 0x%02X".format(usage))
+    }
+
     /** Sends the "all keys up" report to every connected host: clears stuck keys. */
     fun releaseAll(): SessionResult {
         val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
