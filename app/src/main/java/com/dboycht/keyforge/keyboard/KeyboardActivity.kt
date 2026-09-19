@@ -45,6 +45,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.material3.Switch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +59,7 @@ import com.dboycht.keyforge.session.HidSessionManager
 import com.dboycht.keyforge.session.PairedDevice
 import com.dboycht.keyforge.session.SessionPhase
 import com.dboycht.keyforge.session.SessionResult
+import com.dboycht.keyforge.settings.KeyboardSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -123,6 +125,8 @@ private fun KeyboardScreen(session: HidSession) {
     // keystroke order, which is what typing means.
     val keyDispatcher = remember { Dispatchers.Default.limitedParallelism(1) }
     val state by session.state.collectAsState()
+    val settings = remember { KeyboardSettings.get(context) }
+    val modifierLatch by settings.modifierLatch.collectAsState()
     // Which layout is on screen. Switching is a data change: the renderer below is
     // the same for both.
     var layout by remember { mutableStateOf(Keyboards.PC_60) }
@@ -196,13 +200,15 @@ private fun KeyboardScreen(session: HidSession) {
                         scope.launch(keyDispatcher) { session.tapKey(key.keyCode, usage) }
                     }
                 },
-                // Holding Backspace / an arrow key keeps sending, like a real keyboard.
+                // Holding a key keeps sending (pulse output), like a real keyboard.
                 onKeyRepeat = { key ->
                     key.usage?.let { usage ->
                         scope.launch(keyDispatcher) { session.tapKey(key.keyCode, usage) }
                     }
                 },
-                // Modifier: latch on/off, and hold it down for as long as it is latched.
+                // Physical-keyboard style by default (hold = active, lift = release);
+                // the settings switch below turns the phone-style latch back on.
+                modifierLatch = modifierLatch,
                 onModifierChanged = { key, on ->
                     key.usage?.let { usage ->
                         scope.launch(keyDispatcher) {
@@ -210,6 +216,16 @@ private fun KeyboardScreen(session: HidSession) {
                             else session.releaseKey(key.keyCode, usage)
                         }
                     }
+                },
+            )
+
+            Spacer(Modifier.height(8.dp))
+            ModifierModeRow(
+                latch = modifierLatch,
+                onToggle = { enabled ->
+                    settings.setModifierLatch(enabled)
+                    // Switching modes must not leave a modifier stuck down.
+                    run { session.releaseAll() }
                 },
             )
 
@@ -237,6 +253,32 @@ private fun KeyboardScreen(session: HidSession) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ModifierModeRow(latch: Boolean, onToggle: (Boolean) -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "设置",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(text = "Shift/Ctrl 点一下保持", style = MaterialTheme.typography.bodyMedium)
+        Switch(checked = latch, onCheckedChange = onToggle)
+        Text(
+            text = if (latch) {
+                "粘滞：点一下亮、再点一下灭"
+            } else {
+                "默认同电脑键盘：按住生效、松手释放"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

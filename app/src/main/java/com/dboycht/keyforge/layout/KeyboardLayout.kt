@@ -1,7 +1,5 @@
 package com.dboycht.keyforge.layout
 
-import android.view.KeyEvent
-
 /**
  * One key in a keyboard layout.
  *
@@ -31,22 +29,24 @@ internal data class KeySpec(
     /**
      * Whether holding this key should auto-repeat.
      *
-     * Backspace, the arrow keys and space are the keys people hold down in real use
-     * ("hold Backspace to delete a word"); letters are not, and repeating them would
-     * make an accidental long press spray characters.
+     * Every ordinary key repeats, matching a hardware keyboard (holding any key
+     * repeats it). The only exceptions are the **modifier keys**, which are latching
+     * on this keyboard - repeating Shift/Ctrl makes no sense, and they never travel
+     * in a key slot anyway.
+     *
+     * The first repeat waits [AUTO_REPEAT_DELAY_MS]; afterwards the key repeats every
+     * [AUTO_REPEAT_INTERVAL_MS]. The delay is what keeps a normal tap from doubling.
      */
     val supportsAutoRepeat: Boolean
-        get() = when (keyCode) {
-            KeyEvent.KEYCODE_DEL,
-            KeyEvent.KEYCODE_FORWARD_DEL,
-            KeyEvent.KEYCODE_DPAD_LEFT,
-            KeyEvent.KEYCODE_DPAD_RIGHT,
-            KeyEvent.KEYCODE_DPAD_UP,
-            KeyEvent.KEYCODE_DPAD_DOWN,
-            KeyEvent.KEYCODE_SPACE,
-            -> true
-            else -> false
-        }
+        get() = !isModifier
+
+    companion object {
+        /** Time the key must stay down before it starts repeating. */
+        const val AUTO_REPEAT_DELAY_MS = 400L
+
+        /** Gap between repeats once repeating has started. */
+        const val AUTO_REPEAT_INTERVAL_MS = 60L
+    }
 }
 
 /** What a key is for, so the renderer can shade it without knowing key codes. */

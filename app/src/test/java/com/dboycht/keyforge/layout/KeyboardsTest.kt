@@ -113,40 +113,60 @@ class KeyboardsTest {
     }
 
     @Test
-    fun `editing and navigation keys support auto repeat, letters do not`() {
-        // Holding Backspace must delete continuously (user feedback), while holding a
-        // letter must not spray characters.
-        val repeatable = listOf(
+    fun `every ordinary key supports auto repeat and modifiers do not`() {
+        // Requested behaviour: holding any normal key repeats it (like a hardware
+        // keyboard); modifiers are latching instead, so they must never repeat.
+        val ordinary = listOf(
+            android.view.KeyEvent.KEYCODE_A,
+            android.view.KeyEvent.KEYCODE_Z,
+            android.view.KeyEvent.KEYCODE_1,
+            android.view.KeyEvent.KEYCODE_0,
+            android.view.KeyEvent.KEYCODE_SPACE,
+            android.view.KeyEvent.KEYCODE_ENTER,
+            android.view.KeyEvent.KEYCODE_TAB,
             android.view.KeyEvent.KEYCODE_DEL,
             android.view.KeyEvent.KEYCODE_FORWARD_DEL,
             android.view.KeyEvent.KEYCODE_DPAD_LEFT,
             android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
-            android.view.KeyEvent.KEYCODE_DPAD_UP,
-            android.view.KeyEvent.KEYCODE_DPAD_DOWN,
-            android.view.KeyEvent.KEYCODE_SPACE,
+            android.view.KeyEvent.KEYCODE_SEMICOLON,
+            android.view.KeyEvent.KEYCODE_ESCAPE,
+            android.view.KeyEvent.KEYCODE_CAPS_LOCK,
         )
-        repeatable.forEach { code ->
+        ordinary.forEach { code ->
             val key = KeySpec("x", code)
             assertTrue("keyCode $code should auto-repeat", key.supportsAutoRepeat)
         }
 
-        val notRepeatable = listOf(
-            android.view.KeyEvent.KEYCODE_A,
-            android.view.KeyEvent.KEYCODE_Z,
-            android.view.KeyEvent.KEYCODE_1,
-            android.view.KeyEvent.KEYCODE_ENTER,
-            android.view.KeyEvent.KEYCODE_TAB,
-            android.view.KeyEvent.KEYCODE_SEMICOLON,
+        val modifiers = listOf(
+            android.view.KeyEvent.KEYCODE_SHIFT_LEFT,
+            android.view.KeyEvent.KEYCODE_SHIFT_RIGHT,
+            android.view.KeyEvent.KEYCODE_CTRL_LEFT,
+            android.view.KeyEvent.KEYCODE_CTRL_RIGHT,
+            android.view.KeyEvent.KEYCODE_ALT_LEFT,
+            android.view.KeyEvent.KEYCODE_ALT_RIGHT,
+            android.view.KeyEvent.KEYCODE_META_LEFT,
+            android.view.KeyEvent.KEYCODE_META_RIGHT,
         )
-        notRepeatable.forEach { code ->
+        modifiers.forEach { code ->
             val key = KeySpec("x", code)
-            assertFalse("keyCode $code must not auto-repeat", key.supportsAutoRepeat)
+            assertFalse("modifier $code must not auto-repeat", key.supportsAutoRepeat)
         }
     }
 
     @Test
-    fun `the 60 percent layout has a backspace that can auto repeat`() {
-        val backspace = Keyboards.PC_60.allKeys.first { it.label == "Bksp" }
-        assertTrue("Bksp must auto-repeat", backspace.supportsAutoRepeat)
+    fun `repeat timing is a sane pair of values`() {
+        assertTrue("delay must be long enough to not double a normal tap",
+            KeySpec.AUTO_REPEAT_DELAY_MS >= 250L)
+        assertTrue("interval must be short enough to feel continuous",
+            KeySpec.AUTO_REPEAT_INTERVAL_MS in 20L..120L)
+    }
+
+    @Test
+    fun `no modifier in any shipped layout is repeatable`() {
+        layouts.forEach { layout ->
+            layout.allKeys.filter { it.isModifier }.forEach { key ->
+                assertFalse("${layout.id}/${key.label} must not repeat", key.supportsAutoRepeat)
+            }
+        }
     }
 }

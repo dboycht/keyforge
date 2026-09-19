@@ -51,12 +51,10 @@ private val KeyLabelSize = 14.sp
 private val ShiftLabelSize = 10.sp
 
 /**
- * Auto-repeat timing for keys that support it. 400 ms before the first repeat is the
- * familiar desktop default (long enough that a deliberate press does not double up),
- * then 60 ms apart - roughly 16 keystrokes/second while held.
+ * Auto-repeat is configured per key by [KeySpec.supportsAutoRepeat]; the timing lives
+ * in [KeySpec.AUTO_REPEAT_DELAY_MS] / [KeySpec.AUTO_REPEAT_INTERVAL_MS] so the data
+ * layer owns the contract and the view just honours it.
  */
-private const val KeyRepeatDelayMs = 400L
-private const val KeyRepeatIntervalMs = 60L
 
 private const val HighlightTag = "KeyForgeHighlight"
 
@@ -97,6 +95,8 @@ internal fun KeyboardView(
     modifier: Modifier = Modifier,
     onKeyTap: (KeySpec) -> Unit = {},
     onKeyRepeat: (KeySpec) -> Unit = {},
+    /** True: modifiers latch (phone-keyboard style). False: physical-keyboard style. */
+    modifierLatch: Boolean = false,
     onModifierChanged: (KeySpec, Boolean) -> Unit = { _, _ -> },
 ) {
     // Latched modifiers (tap once = on, tap again = off).
@@ -128,17 +128,25 @@ internal fun KeyboardView(
             ) {
                 row.forEach { key ->
                     val isModifier = key.isModifier
-                    val lit = isModifier && key.usage in latched
+                    // Two modifier personalities, chosen in settings:
+                    // - physical-keyboard style (default): down while held, up on lift;
+                    // - latch style: tap to toggle, for people who prefer it.
+                    val lit = isModifier && (if (modifierLatch) key.usage in latched else key.keyCode in pressed)
                     KeyBox(
                         key = key,
                         lit = lit,
                         fingerDown = key.keyCode in pressed,
                         onPressStart = {
                             if (isModifier) {
-                                val usage = key.usage ?: return@KeyBox
-                                val turningOn = usage !in latched
-                                latched = if (turningOn) latched + usage else latched - usage
-                                onModifierChanged(key, turningOn)
+                                pressed = pressed + key.keyCode
+                                if (modifierLatch) {
+                                    val usage = key.usage ?: return@KeyBox
+                                    val turningOn = usage !in latched
+                                    latched = if (turningOn) latched + usage else latched - usage
+                                    onModifierChanged(key, turningOn)
+                                } else {
+                                    onModifierChanged(key, true)
+                                }
                             } else {
                                 pressed = pressed + key.keyCode
                                 // Immediate first keystroke; the repeat loop (started
@@ -147,10 +155,10 @@ internal fun KeyboardView(
                                 if (key.supportsAutoRepeat) {
                                     repeatJob?.cancel()
                                     repeatJob = gestureScope.launch {
-                                        delay(KeyRepeatDelayMs)
+                                        delay(KeySpec.AUTO_REPEAT_DELAY_MS)
                                         while (true) {
                                             onKeyRepeat(key)
-                                            delay(KeyRepeatIntervalMs)
+                                            delay(KeySpec.AUTO_REPEAT_INTERVAL_MS)
                                         }
                                     }
                                 }
@@ -160,6 +168,12 @@ internal fun KeyboardView(
                             repeatJob?.cancel()
                             repeatJob = null
                             pressed = pressed - key.keyCode
+                            // Physical-keyboard modifier: releasing the finger releases the
+                            // modifier. In latch mode the modifier stays until tapped again,
+                            // so nothing is released here.
+                            if (isModifier && !modifierLatch) {
+                                onModifierChanged(key, false)
+                            }
                         },
                     )
                 }
