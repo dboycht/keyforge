@@ -264,9 +264,36 @@ internal class HidSession(
     }
 
     /**
+     * Taps a key: down report, throttle gap, up report - nothing left held.
+     *
+     * This is what a soft keyboard needs (one tap = one keystroke). It deliberately
+     * releases only this key, so a latched modifier (Shift) stays on for the next
+     * tap: "tap Shift, tap a" produces a capital A.
+     */
+    fun tapKey(keyCode: Int, usage: Int): SessionResult {
+        val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
+        val targets = deviceTargets()
+        if (targets.isEmpty()) return SessionResult.Rejected("no host connected - press Connect first")
+
+        val press = keyboard.press(usage)
+        if (press.dropped) {
+            event("tap(0x%02X) dropped: %s".format(usage, press.reason))
+            return SessionResult.Rejected(press.reason ?: "report full")
+        }
+        val down = targets.all { send(hid, it, press.report) }
+        awaitThrottleSlot()
+        val up = targets.all { send(hid, it, keyboard.release(usage).report) }
+        if (!down || !up) return SessionResult.Rejected("sendReport failed (see log)")
+        event("tap  ${keyName(keyCode)} usage=0x%02X".format(usage))
+        return SessionResult.Ok("tapped 0x%02X".format(usage))
+    }
+
+    /**
      * Types one key: sends the down report, waits out the throttle gap, then the
-     * up report. The gap matters because a report carries the whole keyboard
-     * state - back-to-back down/up pairs can be coalesced by the stack.
+     * up report.
+     *
+     * Kept as the "hold" primitive used by tests and by single-shot callers; soft
+     * keyboards should use [tapKey], which preserves latched modifiers.
      *
      * [keyCode] is only used for the log line; [usage] is what goes on the wire.
      */

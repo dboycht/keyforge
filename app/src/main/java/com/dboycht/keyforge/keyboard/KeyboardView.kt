@@ -47,35 +47,28 @@ private val KeyLabelSize = 14.sp
 private val ShiftLabelSize = 10.sp
 
 /**
- * Renders any [KeyboardLayout] and reports key down/up to [onKeyDown]/[onKeyUp].
+ * Renders any [KeyboardLayout] and reports key events to the caller.
  *
- * The view knows nothing about HID: it looks up `key.usage` only to know whether a
- * key is a modifier (which decides tap-on/tap-off behaviour). Everything that
- * turns a press into a report lives in the session layer.
+ * Two different key semantics, matching what a soft keyboard must do:
+ * - **ordinary keys**: a tap is one keystroke (`onKeyTap`). The key must NOT stay
+ *   down after the finger lifts - users read a held-down key as a bug ("I tapped it
+ *   and it is still pressed"). Repeated characters come from repeated taps.
+ * - **modifier keys**: a latch (`onKeyDown` to latch, `onKeyUp` to unlatch) with the
+ *   visual state following the latch, because "hold Shift while typing a letter" is
+ *   a real need and a touch screen cannot hold a modifier reliably.
  *
- * Layout math: rows are `Row`s with `weight = widthUnits`, so the horizontal grid
- * comes from Compose. The keyboard keeps a uniform key shape by fixing its height
- * from the unit width, which is why the 60% layout (15 units, 5 rows) is wider
- * and the phone layout (10 units, 5 rows) is taller per key.
+ * The view knows nothing about HID: it only asks `key.usage` whether a key is a
+ * modifier. Turning a tap into reports lives in the session layer.
  */
 @Composable
 internal fun KeyboardView(
     layout: KeyboardLayout,
     modifier: Modifier = Modifier,
-    onKeyDown: (KeySpec) -> Unit = {},
-    onKeyUp: (KeySpec) -> Unit = {},
+    onKeyTap: (KeySpec) -> Unit = {},
+    onModifierChanged: (KeySpec, Boolean) -> Unit = { _, _ -> },
 ) {
-    val scope = rememberCoroutineScope()
-
-    // Non-modifier keys are held while the finger is down.
-    var heldKeys by remember(layout.id) { mutableStateOf(emptySet<Int>()) }
-    // Modifier keys latch: tap to turn on, tap again to turn off. This is the
-    // familiar phone-keyboard behaviour and it matches the report layout, where a
-    // modifier lives in byte 0 and never occupies one of the six key slots.
-    var latchedModifiers by remember(layout.id) { mutableStateOf(emptySet<Int>()) }
-
-    // Rows share the height the parent grants (see the caller's `weight`), so the
-    // keyboard scales to the screen instead of forcing a fixed height.
+    // Latched modifiers (tap once = on, tap again = off).
+    var latched by remember(layout.id) { mutableStateOf(emptySet<Int>()) }
 
     Column(
         modifier = modifier
@@ -92,33 +85,21 @@ internal fun KeyboardView(
             ) {
                 row.forEach { key ->
                     val isModifier = key.isModifier
-                    val pressed = if (isModifier) {
-                        key.usage in latchedModifiers
-                    } else {
-                        key.keyCode in heldKeys
-                    }
+                    val lit = isModifier && key.usage in latched
                     KeyBox(
                         key = key,
-                        pressed = pressed,
-                        onPress = {
+                        lit = lit,
+                        // A modifier lights up for as long as it is latched; an
+                        // ordinary key lights up only while the finger is down.
+                        momentary = !isModifier,
+                        onTap = {
                             if (isModifier) {
                                 val usage = key.usage ?: return@KeyBox
-                                if (usage in latchedModifiers) {
-                                    latchedModifiers = latchedModifiers - usage
-                                    onKeyUp(key)
-                                } else {
-                                    latchedModifiers = latchedModifiers + usage
-                                    onKeyDown(key)
-                                }
+                                val turningOn = usage !in latched
+                                latched = if (turningOn) latched + usage else latched - usage
+                                onModifierChanged(key, turningOn)
                             } else {
-                                heldKeys = heldKeys + key.keyCode
-                                onKeyDown(key)
-                            }
-                        },
-                        onRelease = {
-                            if (!isModifier) {
-                                heldKeys = heldKeys - key.keyCode
-                                onKeyUp(key)
+                                onKeyTap(key)
                             }
                         },
                     )
@@ -126,19 +107,21 @@ internal fun KeyboardView(
             }
         }
     }
-
-    // Font sizes come from the key-unit constants (KeyLabelSize / ShiftLabelSize)
-    // rather than a mutable module-level value: global mutable UI state is a trap.
 }
 
 @Composable
 private fun RowScope.KeyBox(
     key: KeySpec,
-    pressed: Boolean,
-    onPress: () -> Unit,
-    onRelease: () -> Unit,
+    lit: Boolean,
+    /** True: highlight only while the finger is down. False: highlight while latched. */
+    momentary: Boolean,
+    onTap: () -> Unit,
 ) {
     val weight = key.widthUnits.coerceAtLeast(0.1f)
+    // A momentary key tracks the finger; a latching key tracks its own state.
+    var fingerDown by remember(key.keyCode) { mutableStateOf(false) }
+    val pressed = if (momentary) fingerDown else lit
+
     val background = when {
         pressed -> MaterialTheme.colorScheme.primary
         key.kind == KeyKind.MODIFIER -> Color(0xFF3A3A3C)
@@ -152,12 +135,16 @@ private fun RowScope.KeyBox(
             .weight(weight)
             .fillMaxHeight()
             .background(background, RoundedCornerShape(6.dp))
-            .pointerInput(key.keyCode, pressed) {
+            .pointerInput(key.keyCode) {
                 detectTapGestures(
                     onPress = {
-                        onPress()
+                        fingerDown = true
+                        // Fire on press so the keystroke does not wait for the finger
+                        // to lift (a soft keyboard must feel immediate), then always
+                        // clear the highlight - even if the gesture is cancelled.
+                        onTap()
                         tryAwaitRelease()
-                        onRelease()
+                        fingerDown = false
                     },
                 )
             },

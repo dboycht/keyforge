@@ -185,14 +185,19 @@ private fun KeyboardScreen(session: HidSession) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(KeyboardGridHeight),
-                onKeyDown = { key ->
+                // Ordinary key: one tap = one keystroke, nothing stays held.
+                onKeyTap = { key ->
                     key.usage?.let { usage ->
-                        scope.launch(Dispatchers.Default) { session.pressKey(key.keyCode, usage) }
+                        scope.launch(Dispatchers.Default) { session.tapKey(key.keyCode, usage) }
                     }
                 },
-                onKeyUp = { key ->
+                // Modifier: latch on/off, and hold it down for as long as it is latched.
+                onModifierChanged = { key, on ->
                     key.usage?.let { usage ->
-                        scope.launch(Dispatchers.Default) { session.releaseKey(key.keyCode, usage) }
+                        scope.launch(Dispatchers.Default) {
+                            if (on) session.pressKey(key.keyCode, usage)
+                            else session.releaseKey(key.keyCode, usage)
+                        }
                     }
                 },
             )
