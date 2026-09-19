@@ -66,6 +66,15 @@ import kotlinx.coroutines.withContext
  */
 class ProbeActivity : ComponentActivity() {
 
+    /**
+     * The HID app registration is a single global slot: while the probe holds it,
+     * the keyboard session can not register (`registerApp` returns false and no
+     * `onAppStatusChanged(registered=true)` arrives). Leaving the probe screen
+     * therefore unregisters, and coming back re-runs the probe, which registers
+     * again through the same path.
+     */
+    private var registeredProxy: android.bluetooth.BluetoothHidDevice? = null
+
     private val requiredPermissions = buildList {
         add(Manifest.permission.BLUETOOTH_CONNECT)
         add(Manifest.permission.BLUETOOTH_SCAN)
@@ -77,7 +86,6 @@ class ProbeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
         val requestPermissions = registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions(),
         ) { /* Result handling lives in ProbeScreen: it re-runs the probe when the grant succeeds. */ }
@@ -89,15 +97,29 @@ class ProbeActivity : ComponentActivity() {
                         askForPermissions = {
                             requestPermissions.launch(requiredPermissions)
                         },
+                        onProxyObtained = { proxy -> registeredProxy = proxy },
                     )
                 }
             }
         }
     }
+
+    override fun onStop() {
+        // Free the single global HID registration slot for other screens (the
+        // minimal keyboard) and for the next probe run.
+        registeredProxy?.let { proxy ->
+            runCatching { proxy.unregisterApp() }
+        }
+        registeredProxy = null
+        super.onStop()
+    }
 }
 
 @Composable
-private fun ProbeScreen(askForPermissions: () -> Unit) {
+private fun ProbeScreen(
+    askForPermissions: () -> Unit,
+    onProxyObtained: (android.bluetooth.BluetoothHidDevice) -> Unit = {},
+) {
     val context = LocalContext.current
     var report by remember { mutableStateOf<ProbeReport?>(null) }
     var running by remember { mutableStateOf(false) }
@@ -120,7 +142,9 @@ private fun ProbeScreen(askForPermissions: () -> Unit) {
     LaunchedEffect(runToken) {
         if (!permissionsMissing) {
             running = true
-            report = withContext(Dispatchers.IO) { BluetoothHidProbe.run(context) }
+            report = withContext(Dispatchers.IO) {
+                BluetoothHidProbe.run(context, onProxyObtained)
+            }
             running = false
         }
     }
@@ -185,6 +209,18 @@ private fun ProbeScreen(askForPermissions: () -> Unit) {
                 if (running) {
                     Spacer(Modifier.width(4.dp))
                     CircularProgressIndicator(modifier = Modifier.height(20.dp).width(20.dp))
+                }
+                // Always available: the keyboard screen reports its own live state,
+                // and requiring the probe verdict here would hide the entry point on
+                // a false negative (which this probe has produced before).
+                OutlinedButton(
+                    onClick = {
+                        context.startActivity(
+                            android.content.Intent(context, com.dboycht.keyforge.keyboard.KeyboardActivity::class.java),
+                        )
+                    },
+                ) {
+                    Text(stringResourceOrFallback(context, R.string.probe_open_keyboard))
                 }
             }
 

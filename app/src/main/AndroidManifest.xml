@@ -45,6 +45,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Minimal keyboard session used to verify a real keystroke end to end.
+             Not exported: it owns a live HID registration and is opened from the
+             probe screen. -->
+        <activity
+            android:name=".keyboard.KeyboardActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:label="@string/keyboard_title" />
     </application>
 
 </manifest>

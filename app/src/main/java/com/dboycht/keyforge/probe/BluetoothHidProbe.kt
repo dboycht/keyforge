@@ -55,7 +55,22 @@ internal object BluetoothHidProbe {
 
     private const val PROXY_TIMEOUT_MS = 5_000L
 
-    fun run(context: Context): ProbeReport {
+    /**
+     * How long to wait for `onAppStatusChanged` after calling `registerApp`.
+     * Measured on OPPO K12 Plus / Android 16: about 100 ms. 2 s leaves room for a
+     * slow stack without making the probe feel stuck.
+     */
+    private const val CALLBACK_WAIT_MS = 2_000L
+
+    /**
+     * Runs every check and returns the report.
+     *
+     * [onProxyObtained] receives the HID profile proxy once it is connected, so the
+     * caller can later unregister the app: the platform allows only ONE registered
+     * HID app at a time, and a screen that keeps the registration blocks every
+     * other screen (including the keyboard session).
+     */
+    fun run(context: Context, onProxyObtained: (BluetoothHidDevice) -> Unit = {}): ProbeReport {
         val checks = mutableListOf<ProbeCheck>()
 
         checks += ProbeCheck(
@@ -65,7 +80,7 @@ internal object BluetoothHidProbe {
                 "${Build.MANUFACTURER} ${Build.MODEL} · ${Build.DISPLAY}",
         )
 
-        return runCatching { probeBluetooth(context, checks) }
+        return runCatching { probeBluetooth(context, checks, onProxyObtained) }
             .getOrElse { error ->
                 // The full stack is the most useful thing on screen here: release
                 // builds strip android.util.Log via R8, so the on-screen text (and
@@ -88,7 +103,11 @@ internal object BluetoothHidProbe {
             }
     }
 
-    private fun probeBluetooth(context: Context, checks: MutableList<ProbeCheck>): ProbeReport {
+    private fun probeBluetooth(
+        context: Context,
+        checks: MutableList<ProbeCheck>,
+        onProxyObtained: (BluetoothHidDevice) -> Unit,
+    ): ProbeReport {
         // --- 1. Does this build even have the API? -------------------------
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             checks += ProbeCheck(
@@ -224,14 +243,24 @@ internal object BluetoothHidProbe {
                 fatal = true,
             )
         }
+        // Hand the proxy to the caller so it can unregister later (single global slot).
+        runCatching { onProxyObtained(proxy) }
 
         // --- 6. registerApp: the call the real app depends on ---------------
         val executor = Executors.newSingleThreadExecutor()
         val callbackEvents = mutableListOf<String>()
+        // The synchronous return value of registerApp is NOT the verdict: on
+        // Android 13+ it can return false while the registration actually succeeds
+        // (observed on OPPO K12 Plus / Android 16: return=false but
+        // onAppStatusChanged(registered=true) arrived ~100 ms later). Treating the
+        // return value as truth produced a false "❌ registerApp 失败" verdict.
+        val registeredByCallback = java.util.concurrent.atomic.AtomicBoolean(false)
+        val unregisteredByCallback = java.util.concurrent.atomic.AtomicBoolean(false)
         val callback = object : BluetoothHidDevice.Callback() {
             override fun onAppStatusChanged(pluggedDevice: BluetoothDevice?, registered: Boolean) {
                 val line = "onAppStatusChanged(registered=$registered, device=${pluggedDevice?.address})"
                 Log.i(ProbeConstants.TAG, line)
+                if (registered) registeredByCallback.set(true) else unregisteredByCallback.set(true)
                 synchronized(callbackEvents) { callbackEvents += line }
             }
 
@@ -250,48 +279,53 @@ internal object BluetoothHidProbe {
             ProbeConstants.KEYBOARD_REPORT_DESCRIPTOR,
         )
 
-        var registered = false
-        var usedApi = ""
-        var registerFailure: String? = null
-
-        if (Build.VERSION.SDK_INT >= 34) {
-            usedApi = "registerApp(settings, qosIn, qosOut, executor, callback) [API 34+]"
-            val result = runCatching {
-                proxy.registerApp(settings, null, null, executor, callback)
-            }
-            registered = result.getOrDefault(false)
-            registerFailure = result.exceptionOrNull()?.let { "${it.javaClass.simpleName}: ${it.message}" }
+        val usedApi = if (Build.VERSION.SDK_INT >= 34) {
+            "registerApp(settings, qosIn, qosOut, executor, callback) [API 34+]"
         } else {
-            // API 28–33: both QoS arguments are still required (@NonNull in the
-            // platform source in some builds), so pass null explicitly rather
-            // than relying on a default that does not exist here.
-            usedApi = "registerApp(settings, qosIn, qosOut, executor, callback) [API 28–33]"
-            val result = runCatching {
-                proxy.registerApp(settings, null, null, executor, callback)
-            }
-            registered = result.getOrDefault(false)
-            registerFailure = result.exceptionOrNull()?.let { "${it.javaClass.simpleName}: ${it.message}" }
+            // API 28-33: both QoS arguments are still required in some platform
+            // builds, so pass null explicitly rather than relying on a default.
+            "registerApp(settings, qosIn, qosOut, executor, callback) [API 28-33]"
         }
+        val result = runCatching { proxy.registerApp(settings, null, null, executor, callback) }
+        val returnedTrue = result.getOrDefault(false)
+        val thrown = result.exceptionOrNull()?.let { "${it.javaClass.simpleName}: ${it.message}" }
+
+        // Wait for the authoritative signal. The loop is written so that a callback
+        // that arrived BEFORE this point is still honoured: an earlier
+        // registration (from a previous probe run in the same process) can fire
+        // onAppStatusChanged before our own registerApp call returns, and a naive
+        // "sleep then read" would then report a false failure.
+        val deadline = System.currentTimeMillis() + CALLBACK_WAIT_MS
+        while (!registeredByCallback.get() && !unregisteredByCallback.get() &&
+            System.currentTimeMillis() < deadline
+        ) {
+            Thread.sleep(50)
+        }
+        // The verdict is "a registration was live at some point during this run":
+        // that is exactly the capability the probe exists to test. A later
+        // unregister (including one caused by re-calling registerApp while already
+        // registered) must not turn a demonstrated capability into a failure.
+        val registered = registeredByCallback.get()
 
         checks += ProbeCheck(
             title = "registerApp",
             status = if (registered) ProbeStatus.PASS else ProbeStatus.FAIL,
             detail = buildString {
                 append(usedApi)
-                append(" → ")
+                append(" · return=")
+                append(returnedTrue)
+                append(" · callback registered=")
                 append(registered)
-                registerFailure?.let { append(" · threw $it") }
+                thrown?.let { append(" · threw $it") }
             },
         )
 
-        // Give the stack a moment to deliver onAppStatusChanged.
-        Thread.sleep(800)
         val events = synchronized(callbackEvents) { callbackEvents.toList() }
         checks += ProbeCheck(
             title = "HID callback events",
             status = if (events.isEmpty()) ProbeStatus.WARN else ProbeStatus.PASS,
             detail = events.joinToString(" | ").ifEmpty {
-                "No callback within 800 ms (some builds only call back after pairing)."
+                "No callback within $CALLBACK_WAIT_MS ms (some builds only call back after pairing)."
             },
         )
 
@@ -311,7 +345,7 @@ internal object BluetoothHidProbe {
             registered ->
                 "✅ 本机支持蓝牙 HID 键盘（registerApp 成功）。可以按计划开发。"
             else ->
-                "❌ HID Device profile 存在但 registerApp 失败：${registerFailure ?: "返回 false"}。"
+                "❌ HID Device profile 存在但注册为键盘应用失败：${thrown ?: "回调未报 registered=true"}。"
         }
 
         return ProbeReport(checks = checks, verdict = verdict, fatal = !registered)

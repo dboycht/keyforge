@@ -13,4 +13,7 @@
     <string name="probe_running">正在检测…</string>
     <string name="probe_done">检测完成</string>
     <string name="probe_verdict_title">结论</string>
+
+    <string name="keyboard_title">键铸 · 键盘</string>
+    <string name="probe_open_keyboard">打开键盘（最小验证）</string>
 </resources>
