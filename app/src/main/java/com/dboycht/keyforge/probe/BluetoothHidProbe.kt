@@ -67,10 +67,18 @@ internal object BluetoothHidProbe {
 
         return runCatching { probeBluetooth(context, checks) }
             .getOrElse { error ->
+                // The full stack is the most useful thing on screen here: release
+                // builds strip android.util.Log via R8, so the on-screen text (and
+                // the "copy all results" export) is the reliable diagnostic channel
+                // on a real device.
+                val stack = error.stackTraceToString()
+                    .lineSequence()
+                    .take(12)
+                    .joinToString("\n")
                 checks += ProbeCheck(
                     title = "Probe crashed",
                     status = ProbeStatus.FAIL,
-                    detail = "${error.javaClass.simpleName}: ${error.message}",
+                    detail = "${error.javaClass.simpleName}: ${error.message}\n$stack",
                 )
                 ProbeReport(
                     checks = checks,
@@ -110,10 +118,14 @@ internal object BluetoothHidProbe {
         checks += ProbeCheck(
             title = "Bluetooth adapter",
             status = ProbeStatus.PASS,
-            detail = "Present (${adapter.address ?: "address hidden"}).",
+            detail = "Present. (Reading the local address needs BLUETOOTH_CONNECT, checked next.)",
         )
 
-        // --- 3. Runtime permissions ----------------------------------------
+        // --- 3. Runtime permissions -----------------------------------------
+        // Checked before touching any adapter member: on API 31+ a missing
+        // BLUETOOTH_CONNECT makes even `adapter.address` throw SecurityException
+        // (observed on OPPO K12 Plus / Android 16), which used to abort the probe
+        // here instead of reporting the actionable "grant the permission" verdict.
         val grantedConnect = isGranted(context, Manifest.permission.BLUETOOTH_CONNECT)
         checks += ProbeCheck(
             title = "Permission BLUETOOTH_CONNECT",
@@ -134,7 +146,15 @@ internal object BluetoothHidProbe {
             return ProbeReport(checks, "缺少蓝牙权限，请先在应用内授权后重新检测。", fatal = true)
         }
 
-        // --- 4. Is Bluetooth switched on? ----------------------------------
+        // --- 4. Adapter identity (safe now that BLUETOOTH_CONNECT is present) --
+        val address = runCatching { adapter.address }.getOrNull()
+        checks += ProbeCheck(
+            title = "Bluetooth address",
+            status = if (address != null) ProbeStatus.PASS else ProbeStatus.WARN,
+            detail = address ?: "Address unavailable (stack returned null / hidden).",
+        )
+
+        // --- 5. Is Bluetooth switched on? ----------------------------------
         val enabled = runCatching { adapter.isEnabled }.getOrDefault(false)
         checks += ProbeCheck(
             title = "Bluetooth enabled",
@@ -145,7 +165,7 @@ internal object BluetoothHidProbe {
             return ProbeReport(checks, "蓝牙未开启。", fatal = true)
         }
 
-        // --- 5. The decisive test: HID device profile proxy ------------------
+        // --- 6. The decisive test: HID device profile proxy ------------------
         val proxyHolder = AtomicReference<BluetoothHidDevice?>(null)
         val latch = CountDownLatch(1)
         val proxyListener = object : BluetoothProfile.ServiceListener {

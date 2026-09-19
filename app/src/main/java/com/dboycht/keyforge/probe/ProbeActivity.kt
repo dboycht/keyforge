@@ -48,6 +48,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.dboycht.keyforge.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -77,13 +80,15 @@ class ProbeActivity : ComponentActivity() {
 
         val requestPermissions = registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions(),
-        ) { /* The probe re-reads permission state itself; no action needed here. */ }
+        ) { /* Result handling lives in ProbeScreen: it re-runs the probe when the grant succeeds. */ }
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     ProbeScreen(
-                        onRequestPermissions = { requestPermissions.launch(requiredPermissions) },
+                        askForPermissions = {
+                            requestPermissions.launch(requiredPermissions)
+                        },
                     )
                 }
             }
@@ -92,17 +97,47 @@ class ProbeActivity : ComponentActivity() {
 }
 
 @Composable
-private fun ProbeScreen(onRequestPermissions: () -> Unit) {
+private fun ProbeScreen(askForPermissions: () -> Unit) {
     val context = LocalContext.current
     var report by remember { mutableStateOf<ProbeReport?>(null) }
     var running by remember { mutableStateOf(false) }
     var runToken by remember { mutableStateOf(0) }
     var permissionsMissing by remember { mutableStateOf(hasMissingPermissions(context)) }
+    // Guards the one-shot auto-request on entry; deny + relaunch asks again, deny
+    // inside a session does not loop. The in-app button stays as the manual retry.
+    var permissionPromptShown by remember { mutableStateOf(false) }
+
+    // Request the runtime permissions up front instead of silently failing: on
+    // API 31+ a missing BLUETOOTH_CONNECT makes BluetoothAdapter#getAddress throw
+    // SecurityException, which used to abort the probe before the HID test ran.
+    LaunchedEffect(Unit) {
+        if (hasMissingPermissions(context) && !permissionPromptShown) {
+            permissionPromptShown = true
+            askForPermissions()
+        }
+    }
 
     LaunchedEffect(runToken) {
-        running = true
-        report = withContext(Dispatchers.IO) { BluetoothHidProbe.run(context) }
-        running = false
+        if (!permissionsMissing) {
+            running = true
+            report = withContext(Dispatchers.IO) { BluetoothHidProbe.run(context) }
+            running = false
+        }
+    }
+
+    // Coming back from the system permission dialog (grant or deny) refreshes the
+    // hint and re-runs the probe as soon as the permissions are really there.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            val missing = hasMissingPermissions(context)
+            permissionsMissing = missing
+            if (!missing) {
+                runToken++
+            } else {
+                permissionPromptShown = false
+            }
+        }
     }
 
     Scaffold { innerPadding ->
@@ -124,7 +159,9 @@ private fun ProbeScreen(onRequestPermissions: () -> Unit) {
                 }
                 OutlinedButton(
                     onClick = {
-                        onRequestPermissions()
+                        askForPermissions()
+                        // The RESUMED effect above re-runs the probe once the grant lands;
+                        // this also refreshes the hint immediately when the user denies.
                         permissionsMissing = hasMissingPermissions(context)
                     },
                 ) {
