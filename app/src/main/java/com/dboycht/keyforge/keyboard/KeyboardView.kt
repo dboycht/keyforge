@@ -32,9 +32,8 @@ import androidx.compose.ui.unit.sp
 import com.dboycht.keyforge.layout.KeyKind
 import com.dboycht.keyforge.layout.KeySpec
 import com.dboycht.keyforge.layout.KeyboardLayout
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Width of one key unit; the whole keyboard scales from this single number. */
 internal val KeyUnit = 38.dp
@@ -162,22 +161,31 @@ private fun RowScope.KeyBox(
                 detectTapGestures(
                     onPress = {
                         onPressStart()
-                        // Fire one keystroke immediately, then auto-repeat while the
-                        // finger stays down (the familiar hardware-keyboard feel that
-                        // makes "hold Backspace to delete" work).
-                        if (key.supportsAutoRepeat) {
-                            delay(KeyRepeatDelayMs)
-                            // coroutineContext.isActive is false as soon as the gesture
-                            // is cancelled (finger lifted / pointer lost), which is what
-                            // ends the repeat loop.
-                            while (currentCoroutineContext().isActive) {
-                                onRepeatTick()
-                                delay(KeyRepeatIntervalMs)
+                        try {
+                            if (key.supportsAutoRepeat) {
+                                // Wait for the finger to stay down before repeating, but
+                                // WITHOUT blocking the release: a plain `delay()` here gets
+                                // cancelled when the gesture ends, and if the clearing code
+                                // sat after it, the key would stay stuck in the pressed
+                                // state - which is exactly the bug users reported.
+                                val stillDown = withTimeoutOrNull(KeyRepeatDelayMs) {
+                                    tryAwaitRelease()
+                                    true
+                                }
+                                if (stillDown == true) {
+                                    while (true) {
+                                        onRepeatTick()
+                                        delay(KeyRepeatIntervalMs)
+                                    }
+                                }
+                            } else {
+                                tryAwaitRelease()
                             }
+                        } finally {
+                            // Always runs, including when the gesture is cancelled: the
+                            // highlight must never outlive the touch.
+                            onPressEnd()
                         }
-                        // tryAwaitRelease() cancels the loop above when the finger lifts.
-                        tryAwaitRelease()
-                        onPressEnd()
                     },
                 )
             },
