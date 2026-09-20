@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -32,7 +34,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -45,10 +49,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.material3.Switch
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -152,48 +156,95 @@ private fun KeyboardScreen(session: HidSession) {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                // The keyboard plus the diagnostics do not fit a 1080p landscape
-                // screen, so the whole page scrolls instead of clipping the grid.
-                .verticalScroll(rememberScrollState()),
+                .padding(horizontal = 16.dp, vertical = 6.dp),
         ) {
-            Text(
-                text = "键铸 · 键盘（最小验证）",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-            )
-            StatusLine(session)
-
-            lastResult?.let { line ->
-                Text(
-                    text = line,
-                    color = if (line.startsWith("OK")) PassGreen else FatalRed,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                )
-            }
-
-            Spacer(Modifier.height(8.dp))
-            HostRow(session, state.pairedDevices) { device -> run { session.connect(device.device) } }
-
-            Spacer(Modifier.height(10.dp))
-            LayoutPicker(
-                current = layout,
-                onPick = { picked ->
-                    layout = picked
-                    // A layout switch while keys are down would leave them stuck:
-                    // release everything before the new grid appears.
-                    run { session.releaseAll() }
-                },
-            )
-            KeyboardView(
-                layout = layout,
-                // Fixed height on purpose: with `weight` the grid collapsed to zero
-                // (the rows could not resolve a height inside this column). The
-                // value is derived from the key unit x row count so both layouts fit.
+            // The diagnostics scroll; the keyboard below is pinned so it is always fully
+            // visible. Before this the page scrolled as a whole and the bottom key row
+            // was clipped by the screen edge (measured: Shift had an 11 px tall hit
+            // area), which made the bottom row nearly untappable.
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(KeyboardGridHeight),
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+            ) {
+                Text(
+                    text = "键铸 · 键盘（最小验证）",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                StatusLine(session)
+
+                lastResult?.let { line ->
+                    Text(
+                        text = line,
+                        color = if (line.startsWith("OK")) PassGreen else FatalRed,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+
+                Spacer(Modifier.height(6.dp))
+                HostRow(
+                    session = session,
+                    paired = state.pairedDevices,
+                    connected = state.connectedDevices,
+                ) { device -> run { session.connect(device.device) } }
+
+                Spacer(Modifier.height(6.dp))
+                LayoutPicker(
+                    current = layout,
+                    onPick = { picked ->
+                        layout = picked
+                        // A layout switch while keys are down would leave them stuck:
+                        // release everything before the new grid appears.
+                        run { session.releaseAll() }
+                    },
+                )
+
+                Spacer(Modifier.height(4.dp))
+                ModifierModeRow(
+                    latch = modifierLatch,
+                    onToggle = { enabled ->
+                        settings.setModifierLatch(enabled)
+                        // Switching modes must not leave a modifier stuck down.
+                        run { session.releaseAll() }
+                    },
+                )
+
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "会话事件（越靠下越新）",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(96.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    LazyColumn(modifier = Modifier.padding(8.dp)) {
+                        items(state.log) { line ->
+                            Text(
+                                text = line,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Pinned keyboard. `weight` works now that KeyboardView measures its own
+            // height (BoxWithConstraints) instead of demanding a fixed size - the fixed
+            // size was the earlier "grid collapses to zero" trap (ERROR.md E5).
+            KeyboardView(
+                layout = layout,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1.5f),
                 // Ordinary key: one tap = one keystroke, nothing stays held.
                 onKeyTap = { key ->
                     key.usage?.let { usage ->
@@ -207,7 +258,7 @@ private fun KeyboardScreen(session: HidSession) {
                     }
                 },
                 // Physical-keyboard style by default (hold = active, lift = release);
-                // the settings switch below turns the phone-style latch back on.
+                // the settings switch above turns the phone-style latch back on.
                 modifierLatch = modifierLatch,
                 onModifierChanged = { key, on ->
                     key.usage?.let { usage ->
@@ -218,40 +269,6 @@ private fun KeyboardScreen(session: HidSession) {
                     }
                 },
             )
-
-            Spacer(Modifier.height(8.dp))
-            ModifierModeRow(
-                latch = modifierLatch,
-                onToggle = { enabled ->
-                    settings.setModifierLatch(enabled)
-                    // Switching modes must not leave a modifier stuck down.
-                    run { session.releaseAll() }
-                },
-            )
-
-            Spacer(Modifier.height(10.dp))
-            Text(
-                text = "会话事件（越靠下越新）",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(150.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                shape = RoundedCornerShape(10.dp),
-            ) {
-                LazyColumn(modifier = Modifier.padding(10.dp)) {
-                    items(state.log) { line ->
-                        Text(
-                            text = line,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                        )
-                    }
-                }
-            }
         }
     }
 }
@@ -341,45 +358,112 @@ private fun StatusLine(session: HidSession) {
 private fun HostRow(
     session: HidSession,
     paired: List<PairedDevice>,
+    connected: List<String>,
     onConnect: (PairedDevice) -> Unit,
 ) {
-    Column {
+    var chooserOpen by remember { mutableStateOf(false) }
+
+    // ONE line, not a list. Vertical space is the scarce resource on a landscape phone
+    // (360dp total) and a permanent list of paired devices pushed the keyboard's bottom
+    // row off screen. The chooser is a dialog, which costs no layout space until asked.
+    val connectedNames = paired.filter { it.address in connected }.map { it.name }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(40.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
-            text = "已配对设备（点“连接”请手机主动建立 HID 通道）",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = if (connectedNames.isEmpty()) "未连接" else "已连接：${connectedNames.joinToString()}",
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (connectedNames.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else PassGreen,
         )
-        if (paired.isEmpty()) {
+        Button(
+            onClick = { chooserOpen = true },
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+            modifier = Modifier.height(30.dp),
+        ) {
+            Text(if (connectedNames.isEmpty()) "连接设备" else "切换设备", style = MaterialTheme.typography.bodySmall)
+        }
+        if (connectedNames.isNotEmpty()) {
+            OutlinedButton(
+                onClick = {
+                    paired.filter { it.address in connected }.forEach { session.disconnect(it.device) }
+                },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier.height(30.dp),
+            ) {
+                Text("断开", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        OutlinedButton(
+            onClick = { session.refresh() },
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+            modifier = Modifier.height(30.dp),
+        ) {
+            Text("刷新", style = MaterialTheme.typography.bodySmall)
+        }
+        if (connectedNames.isEmpty() && paired.isEmpty()) {
             Text(
-                text = "没有已配对设备：先在系统蓝牙里与电脑配对，再回到本页点“刷新会话”。",
+                text = "先在系统蓝牙里配对，再点“刷新”",
                 style = MaterialTheme.typography.bodySmall,
                 color = WarnAmber,
             )
         }
-        LazyColumn(modifier = Modifier.heightIn(max = 96.dp)) {
-            items(paired) { device ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = device.name,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.width(220.dp),
-                    )
-                    Text(
-                        text = device.address,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Button(onClick = { onConnect(device) }) { Text("连接") }
-                    OutlinedButton(onClick = { session.disconnect(device.device) }) { Text("断开") }
+    }
+
+    if (chooserOpen) {
+        AlertDialog(
+            onDismissRequest = { chooserOpen = false },
+            title = { Text("选择要连接的设备") },
+            text = {
+                if (paired.isEmpty()) {
+                    Text("没有已配对设备。请先在系统蓝牙里配对目标设备。")
+                } else {
+                    Column {
+                        paired.forEach { device ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = device.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (device.address in connected) {
+                                    Text(
+                                        text = "已连接",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = PassGreen,
+                                    )
+                                } else {
+                                    Button(
+                                        onClick = {
+                                            chooserOpen = false
+                                            onConnect(device)
+                                        },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                        modifier = Modifier.height(28.dp),
+                                    ) {
+                                        Text("连接", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-            }
-        }
-        OutlinedButton(onClick = { session.refresh() }) { Text("刷新会话") }
+            },
+            confirmButton = {
+                TextButton(onClick = { chooserOpen = false }) { Text("关闭") }
+            },
+        )
     }
 }
 

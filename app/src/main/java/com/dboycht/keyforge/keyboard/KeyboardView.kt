@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -28,6 +29,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dboycht.keyforge.layout.KeyKind
@@ -43,12 +46,18 @@ internal val KeyUnit = 38.dp
 /** Height the grid asks for: the tallest shipped layout (5 rows) at [KeyUnit]. */
 internal val KeyboardGridHeight = KeyUnit * 5 * 1.12f
 
-/** Height of one key row. */
-private val KeyRowHeight = KeyUnit * 1.12f
+/**
+ * Clamp for the computed key unit. The lower bound keeps taps possible on a very short
+ * window; the upper bound stops the keyboard from looking absurd on a large screen.
+ */
+private val MinKeyUnit = 24.dp
+private val MaxKeyUnit = 46.dp
 
-/** Label size derived from the key unit, so both layouts stay legible. */
-private val KeyLabelSize = 14.sp
-private val ShiftLabelSize = 10.sp
+/**
+ * Label size for a key of [unit] size: scaled with the unit, so a shrunk grid stays
+ * readable instead of keeping a fixed 14sp that would overflow a 24dp key.
+ */
+private fun labelSizeFor(unit: Dp): TextUnit = (unit.value * 0.36f).coerceIn(9f, 17f).sp
 
 /**
  * Auto-repeat is configured per key by [KeySpec.supportsAutoRepeat]; the timing lives
@@ -75,16 +84,20 @@ private fun traceKeyHighlightEnd(keyCode: Int) {
 /**
  * Renders any [KeyboardLayout] and reports key events to the caller.
  *
+ * The grid scales to fit the space it is given: the unit size is derived from the
+ * available width, then clamped so the whole grid also fits the available height.
+ * Without the height clamp the bottom row is pushed off screen on a short landscape
+ * window (measured: the Shift key ended up with an 11 px tall hit area on a 1080p
+ * landscape phone, which makes the bottom row nearly untappable).
+ *
  * Three key behaviours, matching a soft keyboard that must stay usable:
  * - **ordinary keys**: a tap is one keystroke ([onKeyTap]). The key must NOT stay
  *   lit after the finger lifts - a stuck-looking key reads as a bug. Repeated
  *   characters come from repeated taps.
- * - **repeatable keys** (Backspace, arrows, space...): tap once immediately, and
- *   if the finger stays down, keep sending after a short delay - holding Backspace
- *   must delete continuously, exactly like a hardware keyboard.
- * - **modifier keys**: a latch ([onModifierChanged]) with the highlight following
- *   the latch, because "hold Shift while typing a letter" is a real need and a
- *   touch screen cannot hold a modifier reliably.
+ * - **repeatable keys**: tap once immediately, and if the finger stays down keep
+ *   sending after a short delay (holding Backspace deletes continuously).
+ * - **modifier keys**: physical-keyboard style by default (down while held, up on
+ *   lift); [modifierLatch] switches them to phone-style tap-to-latch.
  *
  * The view knows nothing about HID: it only asks `key.usage` whether a key is a
  * modifier. Turning a press into reports lives in the session layer.
@@ -113,69 +126,78 @@ internal fun KeyboardView(
     // whenever it changes, which is the ground truth for the highlight.
     LaunchedEffect(pressed) { traceKeyHighlight(pressed) }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(2.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        layout.rows.forEach { row ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(KeyRowHeight),
-                horizontalArrangement = Arrangement.spacedBy(2.dp),
-            ) {
-                row.forEach { key ->
-                    val isModifier = key.isModifier
-                    // Two modifier personalities, chosen in settings:
-                    // - physical-keyboard style (default): down while held, up on lift;
-                    // - latch style: tap to toggle, for people who prefer it.
-                    val lit = isModifier && (if (modifierLatch) key.usage in latched else key.keyCode in pressed)
-                    KeyBox(
-                        key = key,
-                        lit = lit,
-                        fingerDown = key.keyCode in pressed,
-                        onPressStart = {
-                            if (isModifier) {
-                                pressed = pressed + key.keyCode
-                                if (modifierLatch) {
-                                    val usage = key.usage ?: return@KeyBox
-                                    val turningOn = usage !in latched
-                                    latched = if (turningOn) latched + usage else latched - usage
-                                    onModifierChanged(key, turningOn)
+    // Fit the grid to the space granted by the parent: width decides the raw unit,
+    // height caps it so no row is pushed off screen.
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        val rows = layout.rows.size.coerceAtLeast(1)
+        val unitFromWidth = maxWidth / layout.widthUnits
+        val unitFromHeight = maxHeight / (rows * 1.12f)
+        val unit = minOf(unitFromWidth, unitFromHeight).coerceIn(MinKeyUnit, MaxKeyUnit)
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(2.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            layout.rows.forEach { row ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(unit * 1.12f),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    row.forEach { key ->
+                        val isModifier = key.isModifier
+                        // Two modifier personalities, chosen in settings:
+                        // - physical-keyboard style (default): down while held, up on lift;
+                        // - latch style: tap to toggle, for people who prefer it.
+                        val lit = isModifier && (if (modifierLatch) key.usage in latched else key.keyCode in pressed)
+                        KeyBox(
+                            key = key,
+                            lit = lit,
+                            fingerDown = key.keyCode in pressed,
+                            labelSp = labelSizeFor(unit),
+                            onPressStart = {
+                                if (isModifier) {
+                                    pressed = pressed + key.keyCode
+                                    if (modifierLatch) {
+                                        val usage = key.usage ?: return@KeyBox
+                                        val turningOn = usage !in latched
+                                        latched = if (turningOn) latched + usage else latched - usage
+                                        onModifierChanged(key, turningOn)
+                                    } else {
+                                        onModifierChanged(key, true)
+                                    }
                                 } else {
-                                    onModifierChanged(key, true)
-                                }
-                            } else {
-                                pressed = pressed + key.keyCode
-                                // Immediate first keystroke; the repeat loop (started
-                                // here for repeatable keys) takes over if the finger stays.
-                                onKeyTap(key)
-                                if (key.supportsAutoRepeat) {
-                                    repeatJob?.cancel()
-                                    repeatJob = gestureScope.launch {
-                                        delay(KeySpec.AUTO_REPEAT_DELAY_MS)
-                                        while (true) {
-                                            onKeyRepeat(key)
-                                            delay(KeySpec.AUTO_REPEAT_INTERVAL_MS)
+                                    pressed = pressed + key.keyCode
+                                    // Immediate first keystroke; the repeat loop (started
+                                    // here for repeatable keys) takes over if the finger stays.
+                                    onKeyTap(key)
+                                    if (key.supportsAutoRepeat) {
+                                        repeatJob?.cancel()
+                                        repeatJob = gestureScope.launch {
+                                            delay(KeySpec.AUTO_REPEAT_DELAY_MS)
+                                            while (true) {
+                                                onKeyRepeat(key)
+                                                delay(KeySpec.AUTO_REPEAT_INTERVAL_MS)
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        },
-                        onPressEnd = {
-                            repeatJob?.cancel()
-                            repeatJob = null
-                            pressed = pressed - key.keyCode
-                            // Physical-keyboard modifier: releasing the finger releases the
-                            // modifier. In latch mode the modifier stays until tapped again,
-                            // so nothing is released here.
-                            if (isModifier && !modifierLatch) {
-                                onModifierChanged(key, false)
-                            }
-                        },
-                    )
+                            },
+                            onPressEnd = {
+                                repeatJob?.cancel()
+                                repeatJob = null
+                                pressed = pressed - key.keyCode
+                                // Physical-keyboard modifier: releasing the finger releases
+                                // the modifier. In latch mode it stays until tapped again.
+                                if (isModifier && !modifierLatch) {
+                                    onModifierChanged(key, false)
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -189,6 +211,8 @@ private fun RowScope.KeyBox(
     lit: Boolean,
     /** Finger currently down on this key (highlight for non-modifiers). */
     fingerDown: Boolean,
+    /** Label size in sp, scaled with the key unit so small grids stay readable. */
+    labelSp: TextUnit,
     onPressStart: () -> Unit,
     onPressEnd: () -> Unit,
 ) {
@@ -245,7 +269,7 @@ private fun RowScope.KeyBox(
             Text(
                 text = key.label,
                 color = textColor,
-                fontSize = KeyLabelSize,
+                fontSize = labelSp,
                 fontWeight = FontWeight.Medium,
                 textAlign = TextAlign.Center,
                 maxLines = 1,
@@ -254,7 +278,7 @@ private fun RowScope.KeyBox(
                 Text(
                     text = shift,
                     color = textColor.copy(alpha = 0.6f),
-                    fontSize = ShiftLabelSize,
+                    fontSize = labelSp * 0.68f,
                     maxLines = 1,
                 )
             }
