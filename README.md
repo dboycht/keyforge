@@ -21,7 +21,7 @@ a compact phone keyboard) that type on a host over Bluetooth. No root required.
 | 修饰键两种模式 | **默认同电脑键盘**（按住生效、松手释放）；可在设置里切成"点一下保持" |
 | 前台服务 | 离开应用后键盘仍保持连接（有常驻通知，可直接断开/停止） |
 
-**尚未实现**：输入法文本转发（规划中）、鼠标/媒体键/触摸板。
+**尚未实现（下一版方向）**：**全屏键盘**、**输入法文本转发**、更多键盘布局、鼠标/媒体键/触摸板。
 
 ## 兼容性（实测，请先读）
 
@@ -77,7 +77,7 @@ $env:JAVA_HOME = "<你的 JDK 17+ 目录>"
 
 ## 版本
 
-版本号单一来源：`app/build.gradle.kts` 的 `versionName`（当前 `1.0.1`）。
+版本号单一来源：`app/build.gradle.kts` 的 `versionName`（当前 `1.0.2`，`1.0.1` 为已发布版本）。
 打 tag / 发 Release 由维护者按需触发。
 
 > 说明：目前的 release 构建用**调试密钥**签名（`tools/sign-apk.ps1`），
