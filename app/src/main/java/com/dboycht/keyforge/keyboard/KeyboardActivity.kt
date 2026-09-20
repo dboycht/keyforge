@@ -50,12 +50,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.dboycht.keyforge.R
 import com.dboycht.keyforge.layout.Keyboards
 import com.dboycht.keyforge.layout.KeyboardLayout
 import com.dboycht.keyforge.session.HidSession
@@ -169,7 +171,7 @@ private fun KeyboardScreen(session: HidSession) {
                     .verticalScroll(rememberScrollState()),
             ) {
                 Text(
-                    text = "键铸 · 键盘（最小验证）",
+                    text = stringResource(R.string.keyboard_title),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
@@ -214,7 +216,7 @@ private fun KeyboardScreen(session: HidSession) {
 
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "会话事件（越靠下越新）",
+                    text = stringResource(R.string.keyboard_section_log),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -281,11 +283,11 @@ private fun ModifierModeRow(latch: Boolean, onToggle: (Boolean) -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "设置",
+            text = stringResource(R.string.keyboard_section_settings),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Text(text = "Shift/Ctrl 点一下保持", style = MaterialTheme.typography.bodyMedium)
+        Text(text = stringResource(R.string.keyboard_modifier_latch), style = MaterialTheme.typography.bodyMedium)
         Switch(checked = latch, onCheckedChange = onToggle)
         Text(
             text = if (latch) {
@@ -307,7 +309,7 @@ private fun LayoutPicker(current: KeyboardLayout, onPick: (KeyboardLayout) -> Un
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "布局",
+            text = stringResource(R.string.keyboard_section_layout),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -319,7 +321,7 @@ private fun LayoutPicker(current: KeyboardLayout, onPick: (KeyboardLayout) -> Un
             )
         }
         Text(
-            text = "（切换布局会先松开所有按键）",
+            text = stringResource(R.string.keyboard_layout_hint),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -375,7 +377,11 @@ private fun HostRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = if (connectedNames.isEmpty()) "未连接" else "已连接：${connectedNames.joinToString()}",
+            text = if (connectedNames.isEmpty()) {
+                stringResource(R.string.keyboard_not_connected)
+            } else {
+                stringResource(R.string.keyboard_connected_to, connectedNames.joinToString())
+            },
             style = MaterialTheme.typography.bodyMedium,
             color = if (connectedNames.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else PassGreen,
         )
@@ -384,7 +390,14 @@ private fun HostRow(
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
             modifier = Modifier.height(30.dp),
         ) {
-            Text(if (connectedNames.isEmpty()) "连接设备" else "切换设备", style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = if (connectedNames.isEmpty()) {
+                    stringResource(R.string.keyboard_action_connect_device)
+                } else {
+                    stringResource(R.string.keyboard_action_switch_device)
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
         if (connectedNames.isNotEmpty()) {
             OutlinedButton(
@@ -394,7 +407,7 @@ private fun HostRow(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                 modifier = Modifier.height(30.dp),
             ) {
-                Text("断开", style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.keyboard_action_disconnect), style = MaterialTheme.typography.bodySmall)
             }
         }
         OutlinedButton(
@@ -402,11 +415,11 @@ private fun HostRow(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
             modifier = Modifier.height(30.dp),
         ) {
-            Text("刷新", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.keyboard_action_refresh), style = MaterialTheme.typography.bodySmall)
         }
         if (connectedNames.isEmpty() && paired.isEmpty()) {
             Text(
-                text = "先在系统蓝牙里配对，再点“刷新”",
+                text = stringResource(R.string.keyboard_pair_first),
                 style = MaterialTheme.typography.bodySmall,
                 color = WarnAmber,
             )
@@ -416,10 +429,10 @@ private fun HostRow(
     if (chooserOpen) {
         AlertDialog(
             onDismissRequest = { chooserOpen = false },
-            title = { Text("选择要连接的设备") },
+            title = { Text(stringResource(R.string.keyboard_chooser_title)) },
             text = {
                 if (paired.isEmpty()) {
-                    Text("没有已配对设备。请先在系统蓝牙里配对目标设备。")
+                    Text(stringResource(R.string.keyboard_chooser_empty))
                 } else {
                     Column {
                         paired.forEach { device ->
@@ -439,7 +452,7 @@ private fun HostRow(
                                 )
                                 if (device.address in connected) {
                                     Text(
-                                        text = "已连接",
+                                        text = stringResource(R.string.keyboard_chooser_connected),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = PassGreen,
                                     )
@@ -452,7 +465,7 @@ private fun HostRow(
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                                         modifier = Modifier.height(28.dp),
                                     ) {
-                                        Text("连接", style = MaterialTheme.typography.bodySmall)
+                                        Text(stringResource(R.string.keyboard_chooser_connect), style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
                             }
@@ -461,7 +474,7 @@ private fun HostRow(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { chooserOpen = false }) { Text("关闭") }
+                TextButton(onClick = { chooserOpen = false }) { Text(stringResource(R.string.keyboard_chooser_close)) }
             },
         )
     }

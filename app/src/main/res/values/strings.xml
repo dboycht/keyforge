@@ -13,9 +13,30 @@
     <string name="probe_running">正在检测…</string>
     <string name="probe_done">检测完成</string>
     <string name="probe_verdict_title">结论</string>
+    <string name="probe_permission_hint">提示：蓝牙权限尚未授予，检测会提前中止。</string>
+
+    <!-- Keyboard screen -->
+    <string name="keyboard_section_layout">布局</string>
+    <string name="keyboard_layout_hint">（切换布局会先松开所有按键）</string>
+    <string name="keyboard_section_settings">设置</string>
+    <string name="keyboard_modifier_latch">Shift/Ctrl 点一下保持</string>
+    <string name="keyboard_section_log">会话事件（越靠下越新）</string>
+    <string name="keyboard_not_connected">未连接</string>
+    <string name="keyboard_connected_to">已连接：%1$s</string>
+    <string name="keyboard_action_connect_device">连接设备</string>
+    <string name="keyboard_action_switch_device">切换设备</string>
+    <string name="keyboard_action_disconnect">断开</string>
+    <string name="keyboard_action_refresh">刷新</string>
+    <string name="keyboard_chooser_title">选择要连接的设备</string>
+    <string name="keyboard_chooser_connected">已连接</string>
+    <string name="keyboard_chooser_connect">连接</string>
+    <string name="keyboard_chooser_empty">没有已配对设备。请先在系统蓝牙里配对目标设备。</string>
+    <string name="keyboard_chooser_close">关闭</string>
+    <string name="keyboard_pair_first">先在系统蓝牙里配对，再点“刷新”</string>
 
     <string name="keyboard_title">键铸 · 键盘</string>
-    <string name="probe_open_keyboard">打开键盘（最小验证）</string>
+    <string name="keyboard_subtitle">KeyForge keyboard</string>
+    <string name="probe_open_keyboard">打开键盘</string>
 
     <!-- Ongoing session notification (foreground service) -->
     <string name="session_channel_name">键盘会话</string>

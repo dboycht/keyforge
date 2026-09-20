@@ -210,7 +210,7 @@ private fun ProbeScreen(
             if (permissionsMissing) {
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    text = "提示：蓝牙权限尚未授予，检测会提前中止。",
+                    text = stringResourceOrFallback(context, R.string.probe_permission_hint),
                     color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -228,7 +228,7 @@ private fun ProbeScreen(
                 ) {
                     Column(Modifier.padding(14.dp)) {
                         Text(
-                            text = "结论",
+                            text = stringResourceOrFallback(context, R.string.probe_verdict_title),
                             fontWeight = FontWeight.Bold,
                             style = MaterialTheme.typography.labelLarge,
                             color = Color.White,
