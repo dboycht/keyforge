@@ -248,29 +248,67 @@ internal object BluetoothHidProbe {
 
         // --- 6. registerApp: the call the real app depends on ---------------
         //
-        // If a keyboard session already holds the registration (the foreground
-        // service, which owns it), do NOT register again: the platform allows one
-        // registered HID app at a time, so a second attempt fails and, worse, can
-        // knock the live session out. Report the live session instead.
+        // The platform allows ONE registered HID app at a time, so if a keyboard session
+        // exists the probe must not register a second time: that attempt fails and can
+        // knock the live session out.
+        //
+        // Measured problem with the previous version of this guard: it only skipped when
+        // the session was already `Registered`, and it did not give the session any time.
+        // On a real device the app's service starts with the process, so the session is
+        // usually still registering when this runs - the probe then took the single slot,
+        // its own callback never reported `registered=true` (the session's callback did),
+        // and the screen showed a false "❌ 注册为键盘应用失败" while the keyboard was in
+        // fact registered and working.
+        //
+        // So: wait briefly for the session to reach a verdict, and only claim the HID layer
+        // ourselves if the session could not (or does not exist).
         val liveSession = com.dboycht.keyforge.session.HidSessionManager.peek()
-        if (liveSession != null &&
-            liveSession.state.value.phase == com.dboycht.keyforge.session.SessionPhase.Registered
-        ) {
+        if (liveSession != null) {
+            liveSession.start()
+            val deadline = System.currentTimeMillis() + SESSION_VERDICT_WAIT_MS
+            while (System.currentTimeMillis() < deadline && !sessionHasVerdict(liveSession)) {
+                Thread.sleep(SESSION_POLL_MS)
+            }
+        }
+        val sessionOwnsHid = liveSession != null && liveSession.state.value.phase in setOf(
+            com.dboycht.keyforge.session.SessionPhase.ProfileConnecting,
+            com.dboycht.keyforge.session.SessionPhase.Registering,
+            com.dboycht.keyforge.session.SessionPhase.Registered,
+        )
+        if (sessionOwnsHid) {
+            val live = liveSession!!.state.value
+            val registered = live.phase == com.dboycht.keyforge.session.SessionPhase.Registered
             checks += ProbeCheck(
                 title = "registerApp",
-                status = ProbeStatus.PASS,
-                detail = "Already registered by the running keyboard session " +
-                    "(connected hosts: ${liveSession.state.value.connectedDevices.ifEmpty { listOf("none") }.joinToString()}). " +
-                    "Probe did not register a second time on purpose.",
+                status = if (registered) ProbeStatus.PASS else ProbeStatus.INFO,
+                detail = buildString {
+                    append(
+                        if (registered) {
+                            "Already registered by the running keyboard session"
+                        } else {
+                            "The running keyboard session is registering right now " +
+                                "(phase=${live.phase}); the result is reported on the keyboard screen"
+                        },
+                    )
+                    append("(connected hosts: ")
+                    append(live.connectedDevices.ifEmpty { listOf("none") }.joinToString())
+                    append("). Probe did not register a second time on purpose: ")
+                    append("the platform allows only one registered HID app.")
+                },
             )
             checks += ProbeCheck(
                 title = "HID callback events",
                 status = ProbeStatus.INFO,
-                detail = "Not re-tested here: the live session owns the callback. See the keyboard screen's event log.",
+                detail = "Not re-tested here: the live session owns the callback. " +
+                    "See the keyboard screen's event log.",
             )
             return ProbeReport(
                 checks = checks,
-                verdict = "✅ 本机支持蓝牙 HID 键盘（键盘会话已注册，无需重复检测）。",
+                verdict = if (registered) {
+                    "✅ 本机支持蓝牙 HID 键盘（键盘会话已注册，无需重复检测）。"
+                } else {
+                    "✅ 本机支持蓝牙 HID 键盘（键盘会话正在注册中，详情看键盘页）。"
+                },
                 fatal = false,
             )
         }
@@ -389,4 +427,25 @@ internal object BluetoothHidProbe {
 
     private fun isGranted(context: Context, permission: String): Boolean =
         ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * How long to let a live keyboard session reach a verdict (registered / failed) before
+     * the probe decides whether it has to register on its own.
+     *
+     * Long enough to cover the observed register-then-callback round trip (about 1.5-2s on
+     * the OPPO device), short enough that the probe screen still feels immediate.
+     */
+    private const val SESSION_VERDICT_WAIT_MS = 4_000L
+
+    private const val SESSION_POLL_MS = 100L
+
+    /** True once the session has stopped moving: it either registered or gave up. */
+    private fun sessionHasVerdict(session: com.dboycht.keyforge.session.HidSession): Boolean =
+        session.state.value.phase in setOf(
+            com.dboycht.keyforge.session.SessionPhase.Registered,
+            com.dboycht.keyforge.session.SessionPhase.Failed,
+            com.dboycht.keyforge.session.SessionPhase.ProfileUnavailable,
+            com.dboycht.keyforge.session.SessionPhase.PermissionMissing,
+            com.dboycht.keyforge.session.SessionPhase.BluetoothOff,
+        )
 }

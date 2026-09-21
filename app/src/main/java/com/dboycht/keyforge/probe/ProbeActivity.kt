@@ -52,6 +52,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.dboycht.keyforge.R
+import com.dboycht.keyforge.keyboard.KeyboardService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -77,6 +78,16 @@ class ProbeActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Bring the session up with the app, not with the keyboard screen.
+        //
+        // Measured problem this fixes: the probe screen is the launcher, so starting the
+        // app and pressing "重新检测" produced a false "❌ 注册为键盘应用失败" on a real
+        // device. With no session alive, the probe registered the HID app itself, and its
+        // own callback then never reported registered=true (the platform had already given
+        // the single slot to the registration the probe's proxy was replacing). Starting
+        // the service here means there is exactly one owner - the service, which is
+        // designed to be that owner - and the probe can simply report its state.
+        KeyboardService.start(this)
         val requestPermissions = registerForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions(),
         ) { /* Result handling lives in ProbeScreen: it re-runs the probe when the grant succeeds. */ }
