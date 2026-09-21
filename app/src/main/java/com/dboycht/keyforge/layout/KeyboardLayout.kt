@@ -70,12 +70,34 @@ internal data class KeyboardLayout(
     val id: String,
     val displayName: String,
     val rows: List<List<KeySpec>>,
+    /**
+     * How far each row is indented, in key units, so the rows are **staggered** instead of
+     * aligned into a grid.
+     *
+     * This is what makes a keyboard look like a keyboard rather than a spreadsheet: real
+     * keyboards (and every phone keyboard) shift each row sideways so the keys sit under the
+     * natural reach of the fingers, and the two ends of a row can then be wider keys. A layout
+     * built from perfectly left-aligned rows reads as a "square grid, hard to operate" - which
+     * is exactly what the user reported.
+     *
+     * Empty means "no stagger" (every row starts at x=0), which is right for the layouts that
+     * really are grids, like the 60% keyboard.
+     */
+    val rowOffsets: List<Float> = emptyList(),
 ) {
     val allKeys: List<KeySpec> get() = rows.flatten()
 
-    /** Total width in key units (the widest row), used to scale the renderer. */
+    /** Indent of [rowIndex], defaulting to none. */
+    fun offsetFor(rowIndex: Int): Float = rowOffsets.getOrElse(rowIndex) { 0f }
+
+    /**
+     * Total width in key units (the widest row **including its indent**), used to scale the
+     * renderer.
+     */
     val widthUnits: Float
-        get() = rows.maxOfOrNull { row -> row.sumOf { it.widthUnits.toDouble() }.toFloat() } ?: 1f
+        get() = rows.indices.maxOfOrNull { index ->
+            offsetFor(index) + rows[index].sumOf { it.widthUnits.toDouble() }.toFloat()
+        } ?: 1f
 
     /**
      * Structural check used by the unit tests.
@@ -98,16 +120,23 @@ internal data class KeyboardLayout(
                 }
             }
         }
-        // Every row must be the same total width, otherwise the rendered grid has
-        // ragged edges (caught a real mistake in the phone layout while writing it).
-        val widths = rows.map { row -> row.sumOf { it.widthUnits.toDouble() } }
+        // Every row must be the same total width **including its indent**, otherwise the
+        // renderer squeezes the wider rows and the keys change size from row to row (caught a
+        // real mistake in the phone layout while writing it, and again in the staggered layout).
+        val widths = rows.indices.map { index ->
+            offsetFor(index) + rows[index].sumOf { it.widthUnits.toDouble() }
+        }
         val firstWidth = widths.firstOrNull()
         if (firstWidth != null) {
             widths.forEachIndexed { rowIndex, w ->
                 if (kotlin.math.abs(w - firstWidth) > 0.001) {
-                    problems += "layout '$id' row $rowIndex is $w units wide, expected $firstWidth"
+                    problems += "layout '$id' row $rowIndex is $w units wide (with indent " +
+                        "${offsetFor(rowIndex)}), expected $firstWidth"
                 }
             }
+        }
+        rowOffsets.forEachIndexed { index, offset ->
+            if (offset < 0f) problems += "layout '$id' row $index has a negative indent $offset"
         }
         return problems
     }

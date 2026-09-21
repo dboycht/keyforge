@@ -240,20 +240,27 @@ class KeyboardsTest {
     }
 
     @Test
-    fun `a narrow window gets the fewest-column layout, a wide one gets the full keyboard`() {
-        // Portrait phone reasoning: 360dp / 15 columns = a 24dp key, smaller than a fingertip,
-        // while the 10-column phone layout gives 36dp. The default therefore depends on width.
+    fun `a narrow window gets the staggered phone layout, a wide one gets the full keyboard`() {
+        // Narrow windows get the staggered layout: it is phone-shaped (rows indented so the keys
+        // sit under the fingers) and its keys are wide. Wide windows get the PC keyboard.
         val narrow = Keyboards.defaultFor(wide = false)
         val wide = Keyboards.defaultFor(wide = true)
 
-        assertEquals(Keyboards.PHONE_STYLE.id, narrow.id)
+        assertEquals(Keyboards.STAGGERED.id, narrow.id)
         assertEquals(Keyboards.PC_60.id, wide.id)
 
-        // The narrow default must genuinely have fewer columns, otherwise choosing it would
-        // not buy the user any key size.
+        // The staggered keyboard is the one that actually staggers. If that stopped being true it
+        // would silently become just another grid - which is the bug this layout exists to fix.
         assertTrue(
-            "narrow default (${narrow.widthUnits}) must be narrower than wide (${wide.widthUnits})",
-            narrow.widthUnits < wide.widthUnits,
+            "the narrow default must indent at least one row",
+            narrow.rows.indices.any { narrow.offsetFor(it) > 0f },
         )
+
+        // And it must be able to type: every letter present on the keyboard itself.
+        val letters = narrow.allKeys.mapNotNull { it.keyCode }.toSet()
+        ('a'..'z').forEach { letter ->
+            val code = android.view.KeyEvent.KEYCODE_A + (letter - 'a')
+            assertTrue("narrow default is missing the letter '$letter'", code in letters)
+        }
     }
 }

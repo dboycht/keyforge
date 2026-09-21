@@ -620,13 +620,20 @@ private fun LayoutThumbnail(layout: KeyboardLayout, modifier: Modifier = Modifie
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(gap),
     ) {
-        layout.rows.forEach { row ->
+        layout.rows.forEachIndexed { rowIndex, row ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(unit),
                 horizontalArrangement = Arrangement.spacedBy(gap),
             ) {
+                // The thumbnail must stagger exactly like the keyboard does, or the preview of the
+                // staggered layout would show the aligned grid the user complained about - and a
+                // preview that lies is worse than no preview.
+                val leader = layout.offsetFor(rowIndex)
+                if (leader > 0f) {
+                    Spacer(modifier = Modifier.weight(leader))
+                }
                 row.forEach { key ->
                     Box(
                         modifier = Modifier

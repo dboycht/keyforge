@@ -46,6 +46,18 @@ import kotlinx.coroutines.launch
 internal val KeyUnit = 38.dp
 
 /**
+ * Upper bound for the computed key unit. Without it a portrait phone (which has far more height
+ * than a keyboard needs) would blow the keys up to fill the screen.
+ */
+private val MaxKeyUnit = 64.dp
+
+/**
+ * How much taller than wide a row may be. A key cap is never square and never a pillar: this
+ * bounds the shape from both sides.
+ */
+private const val RowHeightFactor = 1.15f
+
+/**
  * Lower bound for the computed key unit: keeps keys tappable in a very short window.
  *
  * There is deliberately **no upper bound**. One used to exist (64dp) and it caused a real bug:
@@ -155,18 +167,17 @@ internal fun KeyboardView(
         val gapsAndPadding = GridPadding + RowGap * (rows - 1)
 
         val unitFromWidth = maxWidth / layout.widthUnits
-
-        // How much taller than wide a row may be. Few columns (a 10-unit phone layout) get
-        // slightly taller keys, many columns get the flatter key-cap look; either way rows stay
-        // under 1.25x so keys never become squares again.
-        val rowHeightFactor = if (layout.widthUnits <= 11f) 1.05f else 0.95f
-
         // The tallest the unit may be without the grid overflowing the height budget.
-        val unitFromHeight = (maxHeight - gapsAndPadding) / (rows * rowHeightFactor)
-        val unit = minOf(unitFromWidth, unitFromHeight).coerceAtLeast(MinKeyUnit)
+        val unitFromHeight = (maxHeight - gapsAndPadding) / (rows * RowHeightFactor)
+
+        // A portrait phone has far more height than a keyboard needs, so the width alone would
+        // leave most of the screen empty and the keys small. Letting the height raise the unit
+        // (up to MaxKeyUnit) spreads the keys out to fill the space instead.
+        val unit = minOf(maxOf(unitFromWidth, unitFromHeight), MaxKeyUnit)
+            .coerceAtLeast(MinKeyUnit)
 
         val heightPerRow = (maxHeight - gapsAndPadding) / rows
-        val rowHeight = minOf(unit * rowHeightFactor, heightPerRow)
+        val rowHeight = minOf(unit * RowHeightFactor, heightPerRow)
 
         // When the rows cannot use the whole height (portrait: the window is much taller than
         // the keys need), the leftover goes ABOVE the grid so the keyboard sits at the bottom -
@@ -187,13 +198,20 @@ internal fun KeyboardView(
             if (anchorToBottom) {
                 Spacer(Modifier.fillMaxWidth().weight(1f))
             }
-            layout.rows.forEach { row ->
+            layout.rows.forEachIndexed { rowIndex, row ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(rowHeight),
                     horizontalArrangement = Arrangement.spacedBy(RowGap),
                 ) {
+                    // The row's stagger: a leading gap so this row's keys sit under the finger
+                    // reach instead of lining up with every other row. This is what stops the
+                    // grid from reading as a spreadsheet - see KeyboardLayout.rowOffsets.
+                    val leader = layout.offsetFor(rowIndex)
+                    if (leader > 0f) {
+                        Spacer(modifier = Modifier.weight(leader))
+                    }
                     row.forEach { key ->
                         val isModifier = key.isModifier
                         // Two modifier personalities, chosen in settings:
