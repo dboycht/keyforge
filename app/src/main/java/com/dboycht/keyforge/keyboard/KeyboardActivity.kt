@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -217,103 +218,156 @@ private fun KeyboardScreen(
             )
             return@Scaffold
         }
-        Column(
+        // The normal layout splits the window explicitly instead of relying on weights.
+        //
+        // Why: `weight` on both the diagnostics and the keys measured wrong on device -
+        // first `weight(1.5f)` on the keyboard squeezed the layout picker until it was half
+        // hidden behind the keys, and `weight(1f, fill = false)` then left the keyboard
+        // tiny. Measuring the window and handing the keyboard a bounded share is
+        // deterministic and readable.
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 16.dp, vertical = 6.dp),
         ) {
-            // The diagnostics scroll; the keyboard below is pinned so it is always fully
-            // visible. Before this the page scrolled as a whole and the bottom key row
-            // was clipped by the screen edge (measured: Shift had an 11 px tall hit
-            // area), which made the bottom row nearly untappable.
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-            ) {
-                Text(
-                    text = stringResource(R.string.keyboard_title),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                StatusLine(session)
+            val keyboardHeight = (maxHeight * DiagnosticSplit.keyboardFraction)
+                .coerceIn(DiagnosticSplit.minKeyboard, DiagnosticSplit.maxKeyboard)
 
-                lastResult?.let { line ->
+            Column(modifier = Modifier.fillMaxSize()) {
+                // The diagnostics take every pixel the keyboard does not need.
+                DiagnosticsPanel(
+                    session = session,
+                    state = state,
+                    layout = layout,
+                    lastResult = lastResult,
+                    modifierLatch = modifierLatch,
+                    fullscreenEnabled = fullscreenEnabled,
+                    settings = settings,
+                    onLayoutPick = { switchLayout(it) },
+                    onReleaseAll = { run { session.releaseAll() } },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                )
+
+                // Pinned keyboard with the height computed above, so the diagnostics keep
+                // the rest of the window and the layout picker stays visible.
+                KeyboardGrid(
+                    layout = layout,
+                    session = session,
+                    scope = scope,
+                    keyDispatcher = keyDispatcher,
+                    modifierLatch = modifierLatch,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(keyboardHeight),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Everything above the keyboard in the normal layout: the connection bar, the layout
+ * picker, the settings and the event log.
+ *
+ * Extracted for two reasons: the split between this and the keyboard is the part that keeps
+ * going wrong (see [DiagnosticSplit]), and keeping it as one component stops the screen
+ * function from growing a fourth level of nesting.
+ */
+@Composable
+private fun DiagnosticsPanel(
+    session: HidSession,
+    state: SessionUiState,
+    layout: KeyboardLayout,
+    lastResult: String?,
+    modifierLatch: Boolean,
+    fullscreenEnabled: Boolean,
+    settings: KeyboardSettings,
+    onLayoutPick: (KeyboardLayout) -> Unit,
+    onReleaseAll: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = stringResource(R.string.keyboard_title),
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+        )
+        StatusLine(session)
+
+        lastResult?.let { line ->
+            Text(
+                text = line,
+                color = if (line.startsWith("OK")) PassGreen else FatalRed,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+        HostRow(
+            session = session,
+            paired = state.pairedDevices,
+            connected = state.connectedDevices,
+        ) { device -> session.connect(device.device) }
+
+        Spacer(Modifier.height(6.dp))
+        LayoutPicker(current = layout, onPick = onLayoutPick)
+
+        Spacer(Modifier.height(4.dp))
+        ModifierModeRow(
+            latch = modifierLatch,
+            onToggle = {
+                settings.setModifierLatch(it)
+                // Switching modes must not leave a modifier stuck down.
+                onReleaseAll()
+            },
+            fullscreen = fullscreenEnabled,
+            onFullscreenToggle = { settings.setFullscreen(it) },
+        )
+
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = stringResource(R.string.keyboard_section_log),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(96.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            shape = RoundedCornerShape(10.dp),
+        ) {
+            LazyColumn(modifier = Modifier.padding(8.dp)) {
+                items(state.log) { line ->
                     Text(
                         text = line,
-                        color = if (line.startsWith("OK")) PassGreen else FatalRed,
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
                     )
                 }
-
-                Spacer(Modifier.height(6.dp))
-                HostRow(
-                    session = session,
-                    paired = state.pairedDevices,
-                    connected = state.connectedDevices,
-                ) { device -> run { session.connect(device.device) } }
-
-                Spacer(Modifier.height(6.dp))
-                LayoutPicker(
-                    current = layout,
-                    onPick = { switchLayout(it) },
-                )
-
-                Spacer(Modifier.height(4.dp))
-                ModifierModeRow(
-                    latch = modifierLatch,
-                    onToggle = { enabled ->
-                        settings.setModifierLatch(enabled)
-                        // Switching modes must not leave a modifier stuck down.
-                        run { session.releaseAll() }
-                    },
-                    fullscreen = fullscreenEnabled,
-                    onFullscreenToggle = { settings.setFullscreen(it) },
-                )
-
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = stringResource(R.string.keyboard_section_log),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(96.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    shape = RoundedCornerShape(10.dp),
-                ) {
-                    LazyColumn(modifier = Modifier.padding(8.dp)) {
-                        items(state.log) { line ->
-                            Text(
-                                text = line,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                            )
-                        }
-                    }
-                }
             }
-
-            // Pinned keyboard. `weight` works now that KeyboardView measures its own
-            // height (BoxWithConstraints) instead of demanding a fixed size - the fixed
-            // size was the earlier "grid collapses to zero" trap (ERROR.md E5).
-            KeyboardGrid(
-                layout = layout,
-                session = session,
-                scope = scope,
-                keyDispatcher = keyDispatcher,
-                modifierLatch = modifierLatch,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1.5f),
-            )
         }
     }
+}
+
+/**
+ * How the normal (non full screen) layout divides the window between the keyboard and the
+ * diagnostics.
+ *
+ * A bounded fraction rather than a weight: the keyboard must claim *most* of a short
+ * landscape window, but it must not grow so tall that the information above it - the
+ * connection bar, the layout picker, the settings and the event log - gets squeezed out.
+ * These numbers were chosen against a 360dp-tall landscape phone.
+ */
+private object DiagnosticSplit {
+    const val keyboardFraction = 0.58f
+    val minKeyboard = 150.dp
+    val maxKeyboard = 260.dp
 }
 
 /** Which overlay is open in full screen mode. */
