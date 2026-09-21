@@ -49,9 +49,20 @@ internal val KeyboardGridHeight = KeyUnit * 5 * 1.12f
 /**
  * Clamp for the computed key unit. The lower bound keeps taps possible on a very short
  * window; the upper bound stops the keyboard from looking absurd on a large screen.
+ *
+ * Measured on device (landscape phone, 804x360dp window): with the upper bound at 46dp the
+ * full screen layout used 257.6dp of the 322dp it was granted, leaving a 193px black band
+ * between the bottom row and the screen edge. 64dp lets the grid actually reach the bottom
+ * while still refusing to draw comically large keys.
  */
 private val MinKeyUnit = 24.dp
-private val MaxKeyUnit = 46.dp
+private val MaxKeyUnit = 64.dp
+
+/** Padding around the whole grid. */
+private val GridPadding = 2.dp
+
+/** Gap between rows and between keys in a row. */
+private val RowGap = 2.dp
 
 /**
  * Label size for a key of [unit] size: scaled with the unit, so a shrunk grid stays
@@ -126,26 +137,43 @@ internal fun KeyboardView(
     // whenever it changes, which is the ground truth for the highlight.
     LaunchedEffect(pressed) { traceKeyHighlight(pressed) }
 
-    // Fit the grid to the space granted by the parent: width decides the raw unit,
-    // height caps it so no row is pushed off screen.
+    // Fit the grid to the space granted by the parent: width decides the raw unit, height
+    // caps it, and the ROW HEIGHT is then derived from the granted height so the keys fill
+    // the container exactly.
+    //
+    // The exact-fill step is the fix for the black band the user reported. Measured on
+    // device: the window frame is the full screen ([0,0][2412,1080]), but the keys stopped
+    // 63px short of the bottom. The grid was sized as `unit * 1.12` per row, and while
+    // padding and row gaps were drawn *around* the rows, they were never subtracted from
+    // the height budget - so the last few dp of every layout came out empty.
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val rows = layout.rows.size.coerceAtLeast(1)
         val unitFromWidth = maxWidth / layout.widthUnits
         val unitFromHeight = maxHeight / (rows * 1.12f)
-        val unit = minOf(unitFromWidth, unitFromHeight).coerceIn(MinKeyUnit, MaxKeyUnit)
+        val unit = minOf(unitFromWidth, unitFromHeight)
+            .coerceAtLeast(MinKeyUnit)
+            .coerceAtMost(MaxKeyUnit)
+
+        // Height budget: the top padding and the gaps between rows. What is left is shared
+        // equally by the rows, so the last row ends exactly at the bottom edge.
+        val gapsAndPadding = GridPadding + RowGap * (rows - 1)
+        val rowHeight = ((maxHeight - gapsAndPadding) / rows)
 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(2.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+                // No bottom padding: the grid is sized to reach the bottom edge exactly, so
+                // reserving space below the last row would reopen the very gap this is
+                // fixing (measured 63px of empty background under the bottom key row).
+                .padding(start = GridPadding, end = GridPadding, top = GridPadding),
+            verticalArrangement = Arrangement.spacedBy(RowGap),
         ) {
             layout.rows.forEach { row ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(unit * 1.12f),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        .height(rowHeight),
+                    horizontalArrangement = Arrangement.spacedBy(RowGap),
                 ) {
                     row.forEach { key ->
                         val isModifier = key.isModifier
