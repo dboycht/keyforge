@@ -26,9 +26,16 @@ class KeyboardsTest {
     }
 
     @Test
-    fun `there are two layouts with distinct ids and non-empty names`() {
-        assertEquals(2, layouts.size)
-        assertEquals(layouts.size, layouts.map { it.id }.toSet().size)
+    fun `every shipped layout has a distinct id and a non-empty name`() {
+        // Deliberately NOT an exact count: pinning the number turns "a layout was added"
+        // into a failing test that says nothing useful, and layouts are expected to grow.
+        // What must hold is uniqueness and naming - the picker breaks silently otherwise.
+        assertTrue("expected several layouts, got ${layouts.size}", layouts.size >= 2)
+        assertEquals(
+            "layout ids must be unique: ${layouts.map { it.id }}",
+            layouts.size,
+            layouts.map { it.id }.toSet().size,
+        )
         layouts.forEach { assertTrue("${it.id} needs a display name", it.displayName.isNotBlank()) }
     }
 
@@ -168,5 +175,67 @@ class KeyboardsTest {
                 assertFalse("${layout.id}/${key.label} must not repeat", key.supportsAutoRepeat)
             }
         }
+    }
+
+    @Test
+    fun `the full screen layouts are twelve units wide with equal rows`() {
+        // Full screen trades key COUNT for key SIZE: 15 units (PC_60) across a phone in
+        // landscape leaves keys barely wider than a fingertip, so these are 12 units.
+        listOf(Keyboards.FULL, Keyboards.FULL_COMPACT).forEach { layout ->
+            assertEquals("${layout.id} width", 12.0, layout.widthUnits.toDouble(), 0.001)
+            layout.rows.forEachIndexed { index, row ->
+                val units = row.sumOf { it.widthUnits.toDouble() }
+                assertEquals(
+                    "${layout.id} row $index must be 12 units (a ragged row renders as a mistake)",
+                    12.0,
+                    units,
+                    0.001,
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `the full screen layouts ship the keys a full screen keyboard needs`() {
+        // The point of these two: full screen should still be able to type a sentence and
+        // edit it, so the essentials must be present and reachable.
+        val essentials = listOf(
+            android.view.KeyEvent.KEYCODE_SPACE,
+            android.view.KeyEvent.KEYCODE_ENTER,
+            android.view.KeyEvent.KEYCODE_DEL,
+            android.view.KeyEvent.KEYCODE_SHIFT_LEFT,
+            android.view.KeyEvent.KEYCODE_CTRL_LEFT,
+            android.view.KeyEvent.KEYCODE_TAB,
+        )
+        listOf(Keyboards.FULL, Keyboards.FULL_COMPACT).forEach { layout ->
+            val present = layout.allKeys.mapNotNull { it.keyCode }.toSet()
+            essentials.forEach { code ->
+                assertTrue("${layout.id} is missing an essential key (keyCode $code)", code in present)
+            }
+        }
+    }
+
+    @Test
+    fun `full compact drops the number row so the keys can be taller`() {
+        assertEquals(5, Keyboards.FULL.rows.size)
+        assertEquals(4, Keyboards.FULL_COMPACT.rows.size)
+        assertTrue(
+            "the compact layout must not carry the number row",
+            Keyboards.FULL_COMPACT.allKeys.none { it.keyCode == android.view.KeyEvent.KEYCODE_1 },
+        )
+        // Fewer rows at the same width and height means taller keys - that is the whole
+        // reason the compact variant exists.
+        assertTrue(Keyboards.FULL_COMPACT.rows.size < Keyboards.FULL.rows.size)
+    }
+
+    @Test
+    fun `byId resolves every shipped layout and falls back to the first`() {
+        // Layout choice is persisted by id, so a stale id must degrade gracefully instead
+        // of crashing or showing an empty keyboard.
+        layouts.forEach { layout ->
+            assertEquals(layout.id, Keyboards.byId(layout.id).id)
+        }
+        assertEquals(Keyboards.all.first().id, Keyboards.byId(null).id)
+        assertEquals(Keyboards.all.first().id, Keyboards.byId("no-such-layout").id)
     }
 }
