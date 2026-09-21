@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -63,6 +65,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.dboycht.keyforge.R
+import com.dboycht.keyforge.layout.KeyKind
 import com.dboycht.keyforge.layout.Keyboards
 import com.dboycht.keyforge.layout.KeyboardLayout
 import com.dboycht.keyforge.session.HidSession
@@ -526,39 +529,11 @@ private fun LayoutChoiceDialog(
         text = {
             Column {
                 Keyboards.all.forEach { candidate ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = candidate.displayName,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (candidate.id == current.id) PassGreen
-                            else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (candidate.id == current.id) {
-                            Text(
-                                text = stringResource(R.string.keyboard_chooser_connected),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = PassGreen,
-                            )
-                        } else {
-                            Button(
-                                onClick = { onPick(candidate) },
-                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                modifier = Modifier.height(28.dp),
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.keyboard_chooser_connect),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                        }
-                    }
+                    LayoutChoiceEntry(
+                        layout = candidate,
+                        selected = candidate.id == current.id,
+                        onPick = { onPick(candidate) },
+                    )
                 }
             }
         },
@@ -569,6 +544,115 @@ private fun LayoutChoiceDialog(
         },
     )
 }
+
+/**
+ * One layout in the chooser: a picture of it, its name, and how to pick it.
+ *
+ * The picture matters. Reported by the user: choosing from names alone gave no idea what the
+ * layout would look like, so picking one was a guess. The thumbnail is rendered from the very
+ * same [KeyboardLayout] data the keyboard itself uses, so it cannot drift from reality - it is
+ * not a screenshot that has to be kept up to date.
+ *
+ * The proportions are real (key widths and row count come from the data); only the size is
+ * scaled down, and the labels are omitted because they would be unreadable at this size.
+ */
+@Composable
+private fun LayoutChoiceEntry(
+    layout: KeyboardLayout,
+    selected: Boolean,
+    onPick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LayoutThumbnail(layout = layout, modifier = Modifier.width(118.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = layout.displayName,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (selected) PassGreen else MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = stringResource(R.string.keyboard_layout_size, layout.widthUnits, layout.rows.size),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (selected) {
+            Text(
+                text = stringResource(R.string.keyboard_chooser_connected),
+                style = MaterialTheme.typography.bodySmall,
+                color = PassGreen,
+            )
+        } else {
+            Button(
+                onClick = onPick,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.keyboard_chooser_connect),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A miniature of a layout: one thin bar per key, with the widths taken from the layout data.
+ *
+ * Colours only distinguish the three key kinds, so the shape of the layout - how many columns,
+ * where the wide keys are - is what the eye reads.
+ */
+@Composable
+private fun LayoutThumbnail(layout: KeyboardLayout, modifier: Modifier = Modifier) {
+    val unit = 8.dp
+    val gap = 1.dp
+
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(gap),
+    ) {
+        layout.rows.forEach { row ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(unit),
+                horizontalArrangement = Arrangement.spacedBy(gap),
+            ) {
+                row.forEach { key ->
+                    Box(
+                        modifier = Modifier
+                            .weight(key.widthUnits.coerceAtLeast(0.1f))
+                            .fillMaxHeight()
+                            .background(
+                                color = when (key.kind) {
+                                    KeyKind.MODIFIER -> ThumbModifier
+                                    KeyKind.ACTION -> ThumbAction
+                                    // A gap in a split layout: show it as empty space.
+                                    KeyKind.SPACER -> Color.Transparent
+                                    KeyKind.NORMAL -> ThumbNormal
+                                },
+                                shape = RoundedCornerShape(2.dp),
+                            ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Thumbnail colours: readable against the dark dialog, and distinct per key kind. */
+private val ThumbNormal = Color(0xFFBBBCC4)
+private val ThumbModifier = Color(0xFF7E808C)
+private val ThumbAction = Color(0xFF9A9CAA)
 
 /**
  * Full screen keyboard: the key grid owns the window and the controls collapse into a

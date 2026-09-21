@@ -27,6 +27,7 @@
     <string name="keyboard_panel_settings">设置</string>
     <string name="keyboard_panel_close">收起</string>
     <string name="keyboard_action_choose_layout">选择布局</string>
+    <string name="keyboard_layout_size">%1$.0f 格宽 · %2$d 行</string>
 
     <!-- Input method -->
     <string name="ime_service_name">键铸输入法</string>

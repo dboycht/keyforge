@@ -45,20 +45,13 @@ import kotlinx.coroutines.launch
 /** Width of one key unit; the whole keyboard scales from this single number. */
 internal val KeyUnit = 38.dp
 
-/** Height the grid asks for: the tallest shipped layout (5 rows) at [KeyUnit]. */
-internal val KeyboardGridHeight = KeyUnit * 5 * RowHeightFactor
-
-/** How much taller a row is than it is wide. A key cap is never square. */
-private const val RowHeightFactor = 1.25f
-
 /**
  * Lower bound for the computed key unit: keeps keys tappable in a very short window.
  *
- * There is deliberately **no upper bound**. One used to exist (64dp) and it caused a real
- * bug: in portrait it capped a key at 23dp wide, so a 15-unit layout collapsed into a strip
- * at the bottom of an otherwise empty screen. Key proportions are already bounded by
- * [RowHeightFactor], and the width of the window bounds the unit, so a ceiling adds nothing
- * except a way to be wrong.
+ * There is deliberately **no upper bound**. One used to exist (64dp) and it caused a real bug:
+ * in portrait it capped a key at 23dp wide, so a 15-unit layout collapsed into a strip at the
+ * bottom of an otherwise empty screen. The width of the window bounds the unit and the row
+ * height factor bounds the proportions, so a ceiling adds nothing but a way to be wrong.
  */
 private val MinKeyUnit = 24.dp
 
@@ -141,32 +134,39 @@ internal fun KeyboardView(
     // whenever it changes, which is the ground truth for the highlight.
     LaunchedEffect(pressed) { traceKeyHighlight(pressed) }
 
-    // Fit the grid to the space granted by the parent. One rule decides everything: the key
-    // unit comes from the WIDTH (that is what makes a keyboard look right), and the row height
-    // follows from the unit. The height only ever *limits* the grid, it never stretches it.
+    // Fit the grid to the space granted by the parent.
     //
-    // History, because this was wrong three times in a row:
-    //  1. `unit * 1.12` per row with no height budget  -> 63px empty band under the last row.
-    //  2. "container height / rows"                    -> in portrait every key became a tall
+    // Two rules, in this order:
+    //  1. the key UNIT comes from the width - that is what decides how big a key looks;
+    //  2. the ROW HEIGHT follows from the unit (a key cap is slightly wider than it is tall),
+    //     and the height only ever *limits* the grid, never stretches it.
+    //
+    // History, because this was wrong four times in a row:
+    //  1. `unit * 1.12` per row with no height budget -> 63px empty band under the last row.
+    //  2. "container height / rows"                   -> in portrait every key became a tall
     //     thin pillar (72dp wide, 153dp high) with the label stranded at the top.
-    //  3. a fixed `MaxKeyUnit` ceiling                 -> in portrait it capped the width to
-    //     23dp per key, so a 15-unit layout collapsed into a strip at the bottom while most of
-    //     the screen sat empty.
-    // The proportions of a key are already bounded by the 1.25 factor below, so no arbitrary
-    // ceiling is needed; only a floor, to keep keys tappable in a very short window.
+    //  3. a fixed `MaxKeyUnit` ceiling                -> in portrait it capped the width to
+    //     23dp per key, so the layout collapsed into a strip at the bottom.
+    //  4. rows taller than they are wide              -> user feedback: "the portrait keyboard is
+    //     a square grid, very hard to operate". Keys came out ~1:1, so it read as a grid of
+    //     boxes instead of a keyboard.
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val rows = layout.rows.size.coerceAtLeast(1)
         val gapsAndPadding = GridPadding + RowGap * (rows - 1)
 
         val unitFromWidth = maxWidth / layout.widthUnits
+
+        // How much taller than wide a row may be. Few columns (a 10-unit phone layout) get
+        // slightly taller keys, many columns get the flatter key-cap look; either way rows stay
+        // under 1.25x so keys never become squares again.
+        val rowHeightFactor = if (layout.widthUnits <= 11f) 1.05f else 0.95f
+
         // The tallest the unit may be without the grid overflowing the height budget.
-        val unitFromHeight = (maxHeight - gapsAndPadding) / (rows * RowHeightFactor)
+        val unitFromHeight = (maxHeight - gapsAndPadding) / (rows * rowHeightFactor)
         val unit = minOf(unitFromWidth, unitFromHeight).coerceAtLeast(MinKeyUnit)
 
-        // Rows are slightly taller than they are wide, which is what a key cap looks like.
-        // Never larger than the space available, so the grid can always fit.
         val heightPerRow = (maxHeight - gapsAndPadding) / rows
-        val rowHeight = minOf(unit * RowHeightFactor, heightPerRow)
+        val rowHeight = minOf(unit * rowHeightFactor, heightPerRow)
 
         // When the rows cannot use the whole height (portrait: the window is much taller than
         // the keys need), the leftover goes ABOVE the grid so the keyboard sits at the bottom -
@@ -264,6 +264,14 @@ private fun RowScope.KeyBox(
     onPressEnd: () -> Unit,
 ) {
     val weight = key.widthUnits.coerceAtLeast(0.1f)
+
+    // A spacer is width and nothing else: it holds the two halves of a split layout apart, so
+    // it must not be drawn (a visible box would read as a key) and must not take touches.
+    if (key.kind == KeyKind.SPACER) {
+        Spacer(modifier = Modifier.weight(weight))
+        return
+    }
+
     val pressed = if (key.isModifier) lit else fingerDown
 
     val background = when {

@@ -54,6 +54,15 @@ internal enum class KeyKind {
     NORMAL,
     MODIFIER,
     ACTION,
+
+    /**
+     * A gap, not a key: it occupies width so the keys either side line up (used to split a
+     * layout into a left-hand and a right-hand half) and draws nothing.
+     *
+     * It still needs a key code because [KeySpec] requires one; [KeySpec.usage] resolves it,
+     * but the renderer never draws or sends it.
+     */
+    SPACER,
 }
 
 /** A named layout: rows of keys plus the metadata a picker needs. */
@@ -83,7 +92,10 @@ internal data class KeyboardLayout(
             if (row.isEmpty()) problems += "layout '$id' row $rowIndex is empty"
             row.forEach { key ->
                 if (key.widthUnits <= 0f) problems += "key '${key.label}' has width ${key.widthUnits}"
-                if (key.usage == null) problems += "key '${key.label}' (code ${key.keyCode}) has no HID usage"
+                // A spacer is a gap, not a key: it has no key code to map, on purpose.
+                if (key.kind != KeyKind.SPACER && key.usage == null) {
+                    problems += "key '${key.label}' (code ${key.keyCode}) has no HID usage"
+                }
             }
         }
         // Every row must be the same total width, otherwise the rendered grid has

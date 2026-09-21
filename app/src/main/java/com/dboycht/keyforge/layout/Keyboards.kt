@@ -35,6 +35,15 @@ internal object Keyboards {
     private fun action(label: String, keyCode: Int, widthUnits: Float = 1f) =
         KeySpec(label, keyCode, widthUnits, kind = KeyKind.ACTION)
 
+    /**
+     * A gap in a split layout: it takes width so the two halves line up, and draws nothing.
+     *
+     * The key code exists only because [KeySpec] requires one; a spacer is never drawn, never
+     * pressed and never sent. `KEYCODE_UNKNOWN` is the honest placeholder for "not a key".
+     */
+    private fun spacer(widthUnits: Float = 1f) =
+        KeySpec("", KeyEvent.KEYCODE_UNKNOWN, widthUnits, kind = KeyKind.SPACER)
+
     /** 60% layout: five rows, every row exactly 15 key units wide. */
     val PC_60: KeyboardLayout = KeyboardLayout(
         id = "pc60",
@@ -298,8 +307,89 @@ internal object Keyboards {
         ),
     )
 
+    /**
+     * A **split** 12-unit, five-row layout: the left half is typed with the left thumb, the right
+     * half with the right one, with a gap down the middle.
+     *
+     * For a phone held in two hands, where reaching the middle of a full-width keyboard means
+     * moving a hand. The gap is a [KeyKind.SPACER]: it takes width so the halves line up but
+     * draws nothing.
+     *
+     * Every row sums to 12 units, and every row is split 5.5 + 1 + 5.5 so the two hands always
+     * land on the same column.
+     */
+    val SPLIT: KeyboardLayout = KeyboardLayout(
+        id = "split",
+        displayName = "双手分体（横屏）",
+        rows = listOf(
+            // 5 x 1 + gap(1) + 5 x 1 = 11, and every row below is 12 - so this row carries one
+            // extra 1-unit key to match. The gap keeps the two hands on the same columns.
+            listOf(
+                key("1", KeyEvent.KEYCODE_1, shiftLabel = "!"),
+                key("2", KeyEvent.KEYCODE_2, shiftLabel = "@"),
+                key("3", KeyEvent.KEYCODE_3, shiftLabel = "#"),
+                key("4", KeyEvent.KEYCODE_4, shiftLabel = "$"),
+                key("5", KeyEvent.KEYCODE_5, shiftLabel = "%"),
+                spacer(),
+                key("6", KeyEvent.KEYCODE_6, shiftLabel = "^"),
+                key("7", KeyEvent.KEYCODE_7, shiftLabel = "&"),
+                key("8", KeyEvent.KEYCODE_8, shiftLabel = "*"),
+                key("9", KeyEvent.KEYCODE_9, shiftLabel = "("),
+                key("0", KeyEvent.KEYCODE_0, shiftLabel = ")"),
+                key("=", KeyEvent.KEYCODE_EQUALS, shiftLabel = "+"),
+            ),
+            // Tab(1.5) + q..r(4) + gap(1) + t..i(4) + Bksp(1.5) = 12, and because that already
+            // fills the row there is no room for a backslash here: `\` stays in the layouts that
+            // have a full punctuation row, and this row keeps its two clean halves.
+            listOf(
+                action("Tab", KeyEvent.KEYCODE_TAB, widthUnits = 1.5f),
+                key("q", KeyEvent.KEYCODE_Q), key("w", KeyEvent.KEYCODE_W),
+                key("e", KeyEvent.KEYCODE_E), key("r", KeyEvent.KEYCODE_R),
+                spacer(),
+                key("t", KeyEvent.KEYCODE_T), key("y", KeyEvent.KEYCODE_Y),
+                key("u", KeyEvent.KEYCODE_U), key("i", KeyEvent.KEYCODE_I),
+                action("Bksp", KeyEvent.KEYCODE_DEL, widthUnits = 1.5f),
+            ),
+            // Caps(1) + asdf(4) + gap(1) + ghjk(4) + ;(1) + Enter(1) = 12.
+            listOf(
+                action("Caps", KeyEvent.KEYCODE_CAPS_LOCK),
+                key("a", KeyEvent.KEYCODE_A), key("s", KeyEvent.KEYCODE_S),
+                key("d", KeyEvent.KEYCODE_D), key("f", KeyEvent.KEYCODE_F),
+                spacer(),
+                key("g", KeyEvent.KEYCODE_G), key("h", KeyEvent.KEYCODE_H),
+                key("j", KeyEvent.KEYCODE_J), key("k", KeyEvent.KEYCODE_K),
+                key(";", KeyEvent.KEYCODE_SEMICOLON, shiftLabel = ":"),
+                action("Enter", KeyEvent.KEYCODE_ENTER),
+            ),
+            // Shift(1.5) + zxcv(4) + gap(1) + bnm(3) + ,(1) + Shift(1.25) + ?(0.25)? No:
+            // Shift(1.5) + zxcv(4) + gap(1) + bnm(3) + ,(1) + Shift(1.5) = 12 exactly.
+            listOf(
+                modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT, widthUnits = 1.5f),
+                key("z", KeyEvent.KEYCODE_Z), key("x", KeyEvent.KEYCODE_X),
+                key("c", KeyEvent.KEYCODE_C), key("v", KeyEvent.KEYCODE_V),
+                spacer(),
+                key("b", KeyEvent.KEYCODE_B), key("n", KeyEvent.KEYCODE_N),
+                key("m", KeyEvent.KEYCODE_M),
+                key(",", KeyEvent.KEYCODE_COMMA, shiftLabel = "<"),
+                modifier("Shift", KeyEvent.KEYCODE_SHIFT_RIGHT, widthUnits = 1.5f),
+            ),
+            // Ctrl(1.25) + Alt(1) + Space(2.75) + gap(1) + Space(2.75) + /(1) + Alt(1) +
+            // Ctrl(1.25) = 12. Two space bars: with the hands apart, either thumb gets its own.
+            listOf(
+                modifier("Ctrl", KeyEvent.KEYCODE_CTRL_LEFT, widthUnits = 1.25f),
+                modifier("Alt", KeyEvent.KEYCODE_ALT_LEFT, widthUnits = 1f),
+                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 2.75f),
+                spacer(),
+                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 2.75f),
+                key("/", KeyEvent.KEYCODE_SLASH, shiftLabel = "?"),
+                modifier("Alt", KeyEvent.KEYCODE_ALT_RIGHT, widthUnits = 1f),
+                modifier("Ctrl", KeyEvent.KEYCODE_CTRL_RIGHT, widthUnits = 1.25f),
+            ),
+        ),
+    )
+
     /** Every layout the picker offers, in display order. */
-    val all: List<KeyboardLayout> = listOf(PC_60, FULL, FULL_COMPACT, PHONE_STYLE)
+    val all: List<KeyboardLayout> = listOf(PC_60, FULL, FULL_COMPACT, PHONE_STYLE, SPLIT)
 
     /** Looks up a layout by id, falling back to the first one. */
     fun byId(id: String?): KeyboardLayout = all.firstOrNull { it.id == id } ?: all.first()
