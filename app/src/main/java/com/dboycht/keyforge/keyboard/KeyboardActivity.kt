@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -280,6 +281,9 @@ private fun KeyboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                // Lift the page above the system keyboard, otherwise the forwarding box - the one
+                // thing this mode is about - ends up underneath the user's own IME.
+                .imePadding()
                 .padding(horizontal = 16.dp, vertical = 6.dp)
                 .verticalScroll(rememberScrollState()),
         ) {

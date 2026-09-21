@@ -67,6 +67,7 @@
             android:name=".keyboard.KeyboardActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode"
             android:exported="false"
+            android:windowSoftInputMode="adjustResize"
             android:label="@string/keyboard_title" />
 
         <!-- Owns the single HID registration and the host connection, so the
