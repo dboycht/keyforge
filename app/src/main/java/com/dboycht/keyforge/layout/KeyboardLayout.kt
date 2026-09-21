@@ -71,17 +71,20 @@ internal data class KeyboardLayout(
     val displayName: String,
     val rows: List<List<KeySpec>>,
     /**
-     * How far each row is indented, in key units, so the rows are **staggered** instead of
-     * aligned into a grid.
+     * How far each row is indented, in key units, so the rows are **staggered** instead of aligned
+     * into a grid.
      *
-     * This is what makes a keyboard look like a keyboard rather than a spreadsheet: real
-     * keyboards (and every phone keyboard) shift each row sideways so the keys sit under the
-     * natural reach of the fingers, and the two ends of a row can then be wider keys. A layout
-     * built from perfectly left-aligned rows reads as a "square grid, hard to operate" - which
-     * is exactly what the user reported.
+     * This is what makes a keyboard look like a keyboard rather than a spreadsheet: real keyboards
+     * (and every phone keyboard) shift each row sideways so the keys sit under the natural reach of
+     * the fingers, and the two ends of a row can then be wider keys. A layout built from perfectly
+     * left-aligned rows reads as a "square grid, hard to operate" - which is what the user reported.
      *
-     * Empty means "no stagger" (every row starts at x=0), which is right for the layouts that
-     * really are grids, like the 60% keyboard.
+     * No shipped layout currently uses a non-zero indent (the staggered phone keyboard was removed
+     * at the user's request), but the mechanism stays: it is what the renderer and the picker's
+     * thumbnail both honour, and re-adding a staggered layout is then a pure data change.
+     *
+     * Empty means "no stagger": every row starts at x=0, which is right for the layouts that really
+     * are grids, like the 60% keyboard.
      */
     val rowOffsets: List<Float> = emptyList(),
 ) {
@@ -120,9 +123,10 @@ internal data class KeyboardLayout(
                 }
             }
         }
-        // Every row must be the same total width **including its indent**, otherwise the
-        // renderer squeezes the wider rows and the keys change size from row to row (caught a
-        // real mistake in the phone layout while writing it, and again in the staggered layout).
+        // Every row must be the same total width **including its indent**, otherwise the renderer
+        // squeezes the wider rows and the keys change size from row to row. This check has caught
+        // real mistakes three times while layouts were being written (in the phone, staggered and
+        // split layouts), so it earns its keep even with only three layouts shipping.
         val widths = rows.indices.map { index ->
             offsetFor(index) + rows[index].sumOf { it.widthUnits.toDouble() }
         }

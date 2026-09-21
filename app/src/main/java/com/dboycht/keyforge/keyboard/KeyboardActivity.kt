@@ -699,9 +699,9 @@ private fun LayoutThumbnail(layout: KeyboardLayout, modifier: Modifier = Modifie
                     .height(unit),
                 horizontalArrangement = Arrangement.spacedBy(gap),
             ) {
-                // The thumbnail must stagger exactly like the keyboard does, or the preview of the
-                // staggered layout would show the aligned grid the user complained about - and a
-                // preview that lies is worse than no preview.
+                // The thumbnail must apply the same indent the keyboard applies. A preview that
+                // shows aligned rows for a staggered layout would show the very grid the user
+                // complained about - and a preview that lies is worse than no preview.
                 val leader = layout.offsetFor(rowIndex)
                 if (leader > 0f) {
                     Spacer(modifier = Modifier.weight(leader))
