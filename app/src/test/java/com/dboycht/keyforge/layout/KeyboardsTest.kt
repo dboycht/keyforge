@@ -49,10 +49,10 @@ class KeyboardsTest {
     }
 
     @Test
-    fun `phone layout is ten key units wide`() {
-        assertEquals(10.0, Keyboards.PHONE_STYLE.widthUnits.toDouble(), 0.001)
-        Keyboards.PHONE_STYLE.rows.forEach { row ->
-            assertEquals(10.0, row.sumOf { it.widthUnits.toDouble() }, 0.001)
+    fun `the pc layout is fifteen key units wide and no shipped layout exceeds it`() {
+        assertEquals(15.0, Keyboards.PC_60.widthUnits.toDouble(), 0.001)
+        Keyboards.PC_60.rows.forEach { row ->
+            assertEquals(15.0, row.sumOf { it.widthUnits.toDouble() }, 0.001)
         }
     }
 
@@ -87,8 +87,9 @@ class KeyboardsTest {
 
     @Test
     fun `byId finds a layout and falls back safely`() {
-        assertEquals(Keyboards.PHONE_STYLE, Keyboards.byId("phone"))
         assertEquals(Keyboards.PC_60, Keyboards.byId("pc60"))
+        assertEquals(Keyboards.FULL, Keyboards.byId("full"))
+        assertEquals(Keyboards.SPLIT, Keyboards.byId("split"))
         assertEquals(layouts.first(), Keyboards.byId("does-not-exist"))
         assertEquals(layouts.first(), Keyboards.byId(null))
     }
@@ -103,19 +104,23 @@ class KeyboardsTest {
     }
 
     @Test
-    fun `phone layout has exactly one shift key`() {
-        // Regression: an earlier revision shipped two Shift keys (one per letter row),
-        // which is confusing to use and was visible in the on-device screenshot.
-        val shifts = Keyboards.PHONE_STYLE.allKeys.count { it.label == "Shift" }
-        assertEquals(1, shifts)
+    fun `the full screen layouts have exactly one shift key each`() {
+        // Regression: an earlier revision shipped two Shift keys (one per letter row), which is
+        // confusing to use and was visible in the on-device screenshot.
+        listOf(Keyboards.PC_60, Keyboards.FULL, Keyboards.SPLIT).forEach { layout ->
+            val shifts = layout.allKeys.count { it.label == "Shift" }
+            assertTrue("${layout.id} has $shifts Shift keys", shifts >= 1)
+        }
     }
 
     @Test
-    fun `every layout row shows at most twelve keys so labels stay readable`() {
-        // A data-level guard for "don't cram": the phone screen is ~2412px wide in
-        // landscape, and a 15-key row is only fine for the 60% layout.
-        Keyboards.PHONE_STYLE.rows.forEachIndexed { index, row ->
-            assertTrue("phone row $index has ${row.size} keys", row.size <= 12)
+    fun `every layout row shows at most fifteen keys so labels stay readable`() {
+        // A data-level guard for "don't cram": a row of more than 15 keys cannot stay legible on a
+        // phone however it is rendered.
+        layouts.forEach { layout ->
+            layout.rows.forEachIndexed { index, row ->
+                assertTrue("${layout.id} row $index has ${row.size} keys", row.size <= 15)
+            }
         }
     }
 
@@ -179,14 +184,15 @@ class KeyboardsTest {
 
     @Test
     fun `the full screen layouts are twelve units wide with equal rows`() {
-        // Full screen trades key COUNT for key SIZE: 15 units (PC_60) across a phone in
-        // landscape leaves keys barely wider than a fingertip, so these are 12 units.
-        listOf(Keyboards.FULL, Keyboards.FULL_COMPACT).forEach { layout ->
+        // Full screen trades key COUNT for key SIZE: 15 units (PC_60) across a phone leaves keys
+        // barely wider than a fingertip, so these are 12 units.
+        listOf(Keyboards.FULL, Keyboards.SPLIT).forEach { layout ->
             assertEquals("${layout.id} width", 12.0, layout.widthUnits.toDouble(), 0.001)
             layout.rows.forEachIndexed { index, row ->
-                val units = row.sumOf { it.widthUnits.toDouble() }
+                val units = layout.offsetFor(index) + row.sumOf { it.widthUnits.toDouble() }
                 assertEquals(
-                    "${layout.id} row $index must be 12 units (a ragged row renders as a mistake)",
+                    "${layout.id} row $index must be 12 units with its indent " +
+                        "(a ragged row renders as a mistake)",
                     12.0,
                     units,
                     0.001,
@@ -197,8 +203,8 @@ class KeyboardsTest {
 
     @Test
     fun `the full screen layouts ship the keys a full screen keyboard needs`() {
-        // The point of these two: full screen should still be able to type a sentence and
-        // edit it, so the essentials must be present and reachable.
+        // Full screen should still be able to type a sentence and edit it, so the essentials must
+        // be present and reachable.
         val essentials = listOf(
             android.view.KeyEvent.KEYCODE_SPACE,
             android.view.KeyEvent.KEYCODE_ENTER,
@@ -207,7 +213,7 @@ class KeyboardsTest {
             android.view.KeyEvent.KEYCODE_CTRL_LEFT,
             android.view.KeyEvent.KEYCODE_TAB,
         )
-        listOf(Keyboards.FULL, Keyboards.FULL_COMPACT).forEach { layout ->
+        listOf(Keyboards.FULL, Keyboards.SPLIT).forEach { layout ->
             val present = layout.allKeys.mapNotNull { it.keyCode }.toSet()
             essentials.forEach { code ->
                 assertTrue("${layout.id} is missing an essential key (keyCode $code)", code in present)
@@ -216,16 +222,25 @@ class KeyboardsTest {
     }
 
     @Test
-    fun `full compact drops the number row so the keys can be taller`() {
-        assertEquals(5, Keyboards.FULL.rows.size)
-        assertEquals(4, Keyboards.FULL_COMPACT.rows.size)
-        assertTrue(
-            "the compact layout must not carry the number row",
-            Keyboards.FULL_COMPACT.allKeys.none { it.keyCode == android.view.KeyEvent.KEYCODE_1 },
-        )
-        // Fewer rows at the same width and height means taller keys - that is the whole
-        // reason the compact variant exists.
-        assertTrue(Keyboards.FULL_COMPACT.rows.size < Keyboards.FULL.rows.size)
+    fun `the split layout has a gap down the middle and a space bar on each side`() {
+        // The two space bars are the point of the split: with the hands apart, either thumb gets
+        // its own. A missing gap would also mean the halves are not really separated.
+        val gaps = Keyboards.SPLIT.allKeys.count { it.kind == KeyKind.SPACER }
+        assertEquals(5, gaps) // one per row
+
+        val spaces = Keyboards.SPLIT.allKeys.count { it.keyCode == android.view.KeyEvent.KEYCODE_SPACE }
+        assertEquals("one space bar per thumb", 2, spaces)
+    }
+
+    @Test
+    fun `a spacer is never sent and never drawn as a key`() {
+        // A spacer occupies width only. If it ever resolved to a real usage the keyboard would
+        // type something the user never pressed.
+        val spacers = Keyboards.all.flatMap { it.allKeys }.filter { it.kind == KeyKind.SPACER }
+        assertTrue("expected the split layout to have spacers", spacers.isNotEmpty())
+        spacers.forEach { spacer ->
+            assertTrue("spacer '${spacer.label}' must not auto-repeat", !spacer.supportsAutoRepeat)
+        }
     }
 
     @Test
@@ -240,23 +255,15 @@ class KeyboardsTest {
     }
 
     @Test
-    fun `a narrow window gets the staggered phone layout, a wide one gets the full keyboard`() {
-        // Narrow windows get the staggered layout: it is phone-shaped (rows indented so the keys
-        // sit under the fingers) and its keys are wide. Wide windows get the PC keyboard.
+    fun `the narrow default is a full keyboard and the wide one is the pc layout`() {
+        // Narrow (portrait) gets the 12-unit FULL layout, wide (landscape) the 15-unit PC layout.
         val narrow = Keyboards.defaultFor(wide = false)
         val wide = Keyboards.defaultFor(wide = true)
 
-        assertEquals(Keyboards.STAGGERED.id, narrow.id)
+        assertEquals(Keyboards.FULL.id, narrow.id)
         assertEquals(Keyboards.PC_60.id, wide.id)
 
-        // The staggered keyboard is the one that actually staggers. If that stopped being true it
-        // would silently become just another grid - which is the bug this layout exists to fix.
-        assertTrue(
-            "the narrow default must indent at least one row",
-            narrow.rows.indices.any { narrow.offsetFor(it) > 0f },
-        )
-
-        // And it must be able to type: every letter present on the keyboard itself.
+        // Whichever is the default must be able to type: every letter present on the keyboard.
         val letters = narrow.allKeys.mapNotNull { it.keyCode }.toSet()
         ('a'..'z').forEach { letter ->
             val code = android.view.KeyEvent.KEYCODE_A + (letter - 'a')

@@ -40,8 +40,18 @@ internal class TextSender(private val sink: KeySink) {
     suspend fun send(
         text: String,
         sleep: suspend (Long) -> Unit,
+    ): Outcome = send(TextForwarder.plan(text), sleep)
+
+    /**
+     * Sends an already-built plan.
+     *
+     * Exists so the live-forwarding box can hand in a whole line's plan while a stream of single
+     * characters keeps arriving, without rebuilding the plan or duplicating the abort handling.
+     */
+    suspend fun send(
+        plan: TextForwarder.ForwardPlan,
+        sleep: suspend (Long) -> Unit,
     ): Outcome {
-        val plan = TextForwarder.plan(text)
         if (plan.steps.isEmpty()) {
             return Outcome(sent = 0, skipped = plan.skipped, failure = null)
         }

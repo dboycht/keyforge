@@ -29,6 +29,20 @@
     <string name="keyboard_action_choose_layout">选择布局</string>
     <string name="keyboard_layout_size">%1$.0f 格宽 · %2$d 行</string>
 
+    <!-- Text forwarding (type with your own keyboard, characters go to the host) -->
+    <string name="forward_section">文字转发（边打边发）</string>
+    <string name="forward_section_short">文字转发</string>
+    <string name="forward_field_label">输入文字（用你自己的输入法；可发送的字符会立即打到主机）</string>
+    <string name="forward_auto_send">边打边发</string>
+    <string name="forward_connected">已连接：%1$s</string>
+    <string name="forward_no_host">未连接主机（先在上方连接）</string>
+    <string name="forward_clear">清空</string>
+    <string name="forward_hint">提示：蓝牙键盘只能发按键扫描码，所以中文/emoji 发不出去（会用拼音字母代替）；发不出的字符会在上方列出原因。</string>
+    <string name="forward_failed">未发送：%1$s</string>
+    <string name="forward_sent">已发送 %1$d 个字符</string>
+    <string name="forward_skipped_header">发不出去的字符：</string>
+    <string name="forward_resync">这段改动无法用按键复现（光标跳动了），已重新对齐</string>
+
     <!-- Input method -->
     <string name="ime_service_name">键铸输入法</string>
     <string name="ime_test_title">键铸 · 输入法测试（调试版）</string>

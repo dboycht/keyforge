@@ -29,16 +29,16 @@ internal data class KeySpec(
     /**
      * Whether holding this key should auto-repeat.
      *
-     * Every ordinary key repeats, matching a hardware keyboard (holding any key
-     * repeats it). The only exceptions are the **modifier keys**, which are latching
-     * on this keyboard - repeating Shift/Ctrl makes no sense, and they never travel
-     * in a key slot anyway.
+     * Every ordinary key repeats, matching a hardware keyboard (holding any key repeats it). Two
+     * exceptions: the **modifier keys**, which latch on this keyboard - repeating Shift/Ctrl is
+     * meaningless and they never travel in a key slot anyway - and **spacers**, which are not keys
+     * at all.
      *
      * The first repeat waits [AUTO_REPEAT_DELAY_MS]; afterwards the key repeats every
      * [AUTO_REPEAT_INTERVAL_MS]. The delay is what keeps a normal tap from doubling.
      */
     val supportsAutoRepeat: Boolean
-        get() = !isModifier
+        get() = !isModifier && kind != KeyKind.SPACER
 
     companion object {
         /** Time the key must stay down before it starts repeating. */

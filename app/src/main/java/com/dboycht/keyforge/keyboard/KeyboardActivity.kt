@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -37,6 +38,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -55,6 +57,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -75,9 +85,13 @@ import com.dboycht.keyforge.session.SessionPhase
 import com.dboycht.keyforge.session.SessionResult
 import com.dboycht.keyforge.session.SessionUiState
 import com.dboycht.keyforge.settings.KeyboardSettings
+import com.dboycht.keyforge.text.TextDiff
+import com.dboycht.keyforge.text.TextForwarder
+import com.dboycht.keyforge.text.TextSender
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -163,6 +177,9 @@ private fun KeyboardScreen(
     // (that crashed the process - see ERROR.md E9). Serialising them also keeps
     // keystroke order, which is what typing means.
     val keyDispatcher = remember { Dispatchers.Default.limitedParallelism(1) }
+    // Text forwarding reuses the same plan→sink machinery as the input method, so both paths share
+    // one implementation of "modifiers, pauses, and what counts as a failure".
+    val textSender = remember(session) { TextSender(session) }
     val state by session.state.collectAsState()
     val modifierLatch by settings.modifierLatch.collectAsState()
     val fullscreenEnabled by settings.fullscreen.collectAsState()
@@ -185,6 +202,9 @@ private fun KeyboardScreen(
     // Which overlay is open in full screen. One at a time, and it closes on selection
     // so the user always ends up back at the keyboard.
     var panel by remember { mutableStateOf(FullscreenPanel.NONE) }
+    // Set when the user asks for text forwarding: raises the system keyboard, which hides our grid
+    // and shows the forwarding box.
+    var textInputRequested by remember { mutableStateOf(false) }
 
     DisposableEffect(lifecycleOwner) {
         session.start()
@@ -231,6 +251,20 @@ private fun KeyboardScreen(
                 onLayoutPick = { switchLayout(it) },
                 onExitFullscreen = { settings.setFullscreen(false) },
                 lastResult = lastResult,
+                textInputRequested = textInputRequested,
+                onTextInputRaised = { textInputRequested = false },
+                onRequestTextInput = { textInputRequested = true },
+                onForwardText = { inserted, done ->
+                    scope.launch(keyDispatcher) {
+                        done(textSender.send(TextForwarder.plan(inserted)) { delay(it) })
+                    }
+                },
+                onBackspace = { count, done ->
+                    scope.launch(keyDispatcher) {
+                        repeat(count) { session.tapKey(KeyEvent.KEYCODE_DEL, DELETION_USAGE) }
+                        done(null)
+                    }
+                },
                 run = ::run,
             )
             return@Scaffold
@@ -259,6 +293,21 @@ private fun KeyboardScreen(
                 settings = settings,
                 onLayoutPick = { switchLayout(it) },
                 onReleaseAll = { run { session.releaseAll() } },
+                // Text forwarding: send what was just typed, or backspace what was just deleted.
+                // Each call runs on the same single-worker dispatcher as the keyboard, so the
+                // characters reach the host in the order they were typed.
+                onForwardText = { inserted, done ->
+                    scope.launch(keyDispatcher) {
+                        val outcome = textSender.send(TextForwarder.plan(inserted)) { delay(it) }
+                        done(outcome)
+                    }
+                },
+                onBackspace = { count, done ->
+                    scope.launch(keyDispatcher) {
+                        repeat(count) { session.tapKey(KeyEvent.KEYCODE_DEL, DELETION_USAGE) }
+                        done(null)
+                    }
+                },
             )
         }
     }
@@ -284,6 +333,8 @@ private fun DiagnosticsPanel(
     settings: KeyboardSettings,
     onLayoutPick: (KeyboardLayout) -> Unit,
     onReleaseAll: () -> Unit,
+    onForwardText: (String, (TextSender.Outcome) -> Unit) -> Unit,
+    onBackspace: (Int, (String?) -> Unit) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -305,8 +356,7 @@ private fun DiagnosticsPanel(
 
         Spacer(Modifier.height(6.dp))
         HostRow(
-            session = session,
-            paired = state.pairedDevices,
+            session = session,            paired = state.pairedDevices,
             connected = state.connectedDevices,
         ) { device -> session.connect(device.device) }
 
@@ -323,6 +373,21 @@ private fun DiagnosticsPanel(
             },
             fullscreen = fullscreenEnabled,
             onFullscreenToggle = { settings.setFullscreen(it) },
+        )
+
+        Spacer(Modifier.height(6.dp))
+        // Text forwarding sits above the log: it is the feature you interact with, the log is only
+        // there when something goes wrong.
+        Text(
+            text = stringResource(R.string.forward_section),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(2.dp))
+        TextForwardingBox(
+            state = state,
+            onForward = onForwardText,
+            onBackspace = onBackspace,
         )
 
         Spacer(Modifier.height(6.dp))
@@ -361,6 +426,9 @@ private enum class FullscreenPanel { NONE, DEVICES, SETTINGS }
  * a 24dp key, which is smaller than a fingertip.
  */
 private const val NARROW_WIDTH_DP = 600
+
+/** HID usage for Backspace (the key slot that deletes one character to the left). */
+private const val DELETION_USAGE = 0x2A
 
 /**
  * The key grid, wired to the session.
@@ -686,8 +754,20 @@ private fun FullscreenLayout(
     onLayoutPick: (KeyboardLayout) -> Unit,
     onExitFullscreen: () -> Unit,
     lastResult: String?,
+    textInputRequested: Boolean,
+    onTextInputRaised: () -> Unit,
+    onRequestTextInput: () -> Unit,
+    onForwardText: (String, (TextSender.Outcome) -> Unit) -> Unit,
+    onBackspace: (Int, (String?) -> Unit) -> Unit,
     run: (suspend () -> SessionResult) -> Unit,
 ) {
+    // Hide our own keyboard while the system input method is up.
+    //
+    // This is the conflict the forwarding box creates: to type with the user's own IME, the system
+    // keyboard must appear - and our full screen keyboard would sit underneath it, hiding the very
+    // text field being typed into. Hiding ours leaves exactly one keyboard on screen at a time.
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -701,7 +781,22 @@ private fun FullscreenLayout(
             },
             onLayoutPick = onLayoutPick,
             onExitFullscreen = onExitFullscreen,
+            onRequestTextInput = onRequestTextInput,
         )
+
+        // Invisible: it exists only to raise the system keyboard when asked.
+        SystemKeyboardOpener(requested = textInputRequested, onRaised = onTextInputRaised)
+
+        // Typing with your own keyboard, forwarded to the host as you type. Only shown when the
+        // system keyboard is up: this panel appears above our grid, so it belongs to that mode.
+        if (imeVisible) {
+            TextForwardingBox(
+                state = state,
+                onForward = onForwardText,
+                onBackspace = onBackspace,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            )
+        }
 
         when (panel) {
             FullscreenPanel.DEVICES -> FullscreenPanelCard(
@@ -761,16 +856,23 @@ private fun FullscreenLayout(
             FullscreenPanel.NONE -> Unit
         }
 
-        KeyboardGrid(
-            layout = layout,
-            session = session,
-            scope = scope,
-            keyDispatcher = keyDispatcher,
-            modifierLatch = modifierLatch,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-        )
+        // Our grid hides itself while the system keyboard is up: at that moment the user is typing
+        // into the forwarding box with their own IME, and two keyboards on screen at once would
+        // bury the text field this mode exists to show.
+        if (!imeVisible) {
+            KeyboardGrid(
+                layout = layout,
+                session = session,
+                scope = scope,
+                keyDispatcher = keyDispatcher,
+                modifierLatch = modifierLatch,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+        } else {
+            Spacer(modifier = Modifier.weight(1f))
+        }
     }
 }
 
@@ -782,6 +884,7 @@ private fun FullscreenBar(
     onTogglePanel: (FullscreenPanel) -> Unit,
     onLayoutPick: (KeyboardLayout) -> Unit,
     onExitFullscreen: () -> Unit,
+    onRequestTextInput: () -> Unit,
 ) {
     var choosingLayout by remember { mutableStateOf(false) }
     val connected = state.connectedDevices
@@ -828,6 +931,18 @@ private fun FullscreenBar(
         ) {
             Text(
                 text = stringResource(R.string.keyboard_panel_settings),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        // The way into text forwarding: raising the system keyboard hides our grid and shows the
+        // forwarding box, so the user can type with their own IME.
+        OutlinedButton(
+            onClick = onRequestTextInput,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+            modifier = Modifier.height(28.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.forward_section_short),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -892,6 +1007,183 @@ private fun FullscreenPanelCard(
             }
             content()
         }
+    }
+}
+
+/**
+ * The text-forwarding box: type here with **your own keyboard**, and the characters go to the host
+ * as you type.
+ *
+ * This is the "forward text" mode the user asked for ("上面一个文本框，我进行输入，那边自动打出文字").
+ * It deliberately does **not** use the app's own input method: the user wants their familiar IME
+ * (pinyin candidates, autocorrect), and this box just relays what that IME commits.
+ *
+ * What it can and cannot do is a hardware fact, not a limitation of this code: a HID keyboard sends
+ * key **scancodes**, so only characters that exist on a keyboard can travel. Chinese characters have
+ * no scancode - when a pinyin IME commits 你好, the host can only receive the letters the user typed.
+ * Refused characters are therefore listed with the reason, never silently dropped.
+ */
+@Composable
+private fun TextForwardingBox(
+    state: SessionUiState,
+    onForward: (String, (TextSender.Outcome) -> Unit) -> Unit,
+    onBackspace: (Int, (String?) -> Unit) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    // Messages are resolved here, in composable scope, and handed to the plain functions below:
+    // stringResource cannot be called from a non-composable helper.
+    val sentTemplate = stringResource(R.string.forward_sent)
+    val failedTemplate = stringResource(R.string.forward_failed)
+    val skippedHeader = stringResource(R.string.forward_skipped_header)
+    val resyncMessage = stringResource(R.string.forward_resync)
+
+    var text by remember { mutableStateOf("") }
+    var autoSend by remember { mutableStateOf(true) }
+    var report by remember { mutableStateOf<String?>(null) }
+    // The last text we know the host has seen. Updated only after a send returns, so a refused
+    // character is reported rather than being silently skipped.
+    var syncedText by remember { mutableStateOf("") }
+
+    fun onTextChanged(next: String) {
+        if (!autoSend) {
+            text = next
+            syncedText = next
+            return
+        }
+        val change = TextDiff.between(syncedText, next)
+        text = next
+
+        when {
+            change.isNoop -> Unit
+            change.needsResync -> {
+                // The caret jumped or the field was replaced: we cannot reproduce that as typing,
+                // so re-anchor instead of sending keystrokes that do not match what the user sees.
+                syncedText = next
+                report = resyncMessage
+            }
+            change.isBackspace -> onBackspace(change.deletedFromEnd) { failure ->
+                syncedText = next
+                report = failure
+            }
+            else -> onForward(change.inserted) { outcome ->
+                syncedText = next
+                report = describeOutcome(outcome, sentTemplate, failedTemplate, skippedHeader)
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = { onTextChanged(it) },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.forward_field_label)) },
+            minLines = 2,
+            maxLines = 4,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.forward_auto_send),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Switch(checked = autoSend, onCheckedChange = { autoSend = it })
+            Text(
+                text = stringResource(
+                    if (state.connectedDevices.isEmpty()) R.string.forward_no_host
+                    else R.string.forward_connected,
+                    state.connectedDevices.joinToString().ifEmpty { "-" },
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (state.connectedDevices.isEmpty()) WarnAmber else PassGreen,
+                modifier = Modifier.weight(1f),
+            )
+            // A compact button, not a TextButton: the label was wrapping onto two lines in a
+            // narrow portrait window, which made the row taller for no reason.
+            OutlinedButton(
+                onClick = {
+                    text = ""
+                    syncedText = ""
+                    report = null
+                },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier.height(30.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.forward_clear),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        report?.let { line ->
+            Text(
+                text = line,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (line.startsWith("已发送")) PassGreen else FatalRed,
+            )
+        }
+        Text(
+            text = stringResource(R.string.forward_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Turns a send result into the one line the user reads.
+ *
+ * The honesty rule from the project: a character a HID keyboard cannot carry is **named**, with its
+ * reason, rather than dropped or turned into a wrong key.
+ */
+private fun describeOutcome(
+    outcome: TextSender.Outcome,
+    sentTemplate: String,
+    failedTemplate: String,
+    skippedHeader: String,
+): String = buildString {
+    append(sentTemplate.format(outcome.sent))
+    outcome.failure?.let { append("；").append(failedTemplate.format(it)) }
+    if (outcome.skipped.isNotEmpty()) {
+        append("；").append(skippedHeader).append(' ')
+        append(outcome.skipped.joinToString("、") { "${it.char}：${it.reason}" })
+    }
+}
+
+/**
+ * An invisible focusable field whose only job is to **summon the system keyboard**.
+ *
+ * Why it is needed: in full screen mode our own keyboard is on screen, so nothing would ever ask
+ * the system for its input method - and the forwarding box needs the user's own IME (pinyin,
+ * autocorrect) to type with. Focusing this field raises that IME, and once it is up our grid hides
+ * itself (see the `imeVisible` handling in [FullscreenLayout]).
+ *
+ * The field itself holds no text: the visible text lives in the forwarding box, which is what
+ * actually forwards characters. One field owning the text keeps the two in step.
+ */
+@Composable
+private fun SystemKeyboardOpener(requested: Boolean, onRaised: () -> Unit) {
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+
+    Box(
+        modifier = Modifier
+            .size(1.dp)
+            .focusRequester(focusRequester)
+            .focusable(),
+    )
+
+    LaunchedEffect(requested) {
+        if (!requested) return@LaunchedEffect
+        focusRequester.requestFocus()
+        keyboard?.show()
+        onRaised()
     }
 }
 

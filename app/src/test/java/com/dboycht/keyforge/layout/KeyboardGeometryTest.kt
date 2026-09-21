@@ -14,7 +14,7 @@ import org.junit.Test
  */
 class KeyboardGeometryTest {
 
-    private val layout = Keyboards.PHONE_STYLE
+    private val layout = Keyboards.PC_60
     private val heightPx = 500f
 
     @Test
