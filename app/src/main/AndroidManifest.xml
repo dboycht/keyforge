@@ -22,6 +22,11 @@
          the probe can be granted it on Android 13+. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- The app can be selected as a system input method. The BIND_INPUT_METHOD
+         permission is signature-level and is enforced by the platform when the IME
+         service is bound. -->
+    <uses-permission android:name="android.permission.BIND_INPUT_METHOD" />
+
     <!-- The keyboard session must survive leaving the app, so it runs as a
          foreground service of the "connected device" kind (Android 14+ requires the
          type-specific permission too). -->
@@ -73,6 +78,28 @@
                 <action android:name="android.bluetooth.BluetoothHidDevice" />
             </intent-filter>
         </service>
+
+        <!-- Input method flavour: the phone's own text editing stays available while the
+             keystrokes go to the connected host. `exported="true"` is required - the
+             system input-method manager binds it from outside the app. -->
+        <service
+            android:name=".ime.KeyforgeImeService"
+            android:exported="true"
+            android:label="@string/ime_service_name"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+
+        <!-- The gear icon in the system input-method picker needs somewhere to go. -->
+        <activity
+            android:name=".ime.ImeSettingsActivity"
+            android:exported="true"
+            android:label="@string/ime_service_name" />
     </application>
 
 </manifest>

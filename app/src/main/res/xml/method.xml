@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Input method metadata.
+
+  `settingsActivity` is required by the platform: without it the gear icon in the system
+  input-method picker has nowhere to go, and the user cannot reach the app's settings from
+  the keyboard switcher.
+-->
+<input-method xmlns:android="http://schemas.android.com/apk/res/android"
+    android:settingsActivity="com.dboycht.keyforge.ime.ImeSettingsActivity" />
