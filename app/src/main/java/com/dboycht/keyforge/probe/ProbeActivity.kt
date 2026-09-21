@@ -14,6 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -167,10 +168,16 @@ private fun ProbeScreen(
         ) {
             Header()
 
-            Row(
+            // A wrapping row, not a plain Row.
+            //
+            // Measured in portrait: the three buttons plus the entry point do not fit the
+            // narrow width, and a plain Row squashed the last label until it rendered as a
+            // vertical column of characters. FlowRow lets them wrap onto another line.
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
             ) {
                 Button(onClick = { runToken++ }, enabled = !running) {
                     Text(stringResourceOrFallback(context, R.string.probe_run))

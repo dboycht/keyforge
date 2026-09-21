@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -809,16 +810,19 @@ private fun HostRow(
 ) {
     var chooserOpen by remember { mutableStateOf(false) }
 
-    // ONE line, not a list. Vertical space is the scarce resource on a landscape phone
-    // (360dp total) and a permanent list of paired devices pushed the keyboard's bottom
-    // row off screen. The chooser is a dialog, which costs no layout space until asked.
+    // One wrapping row, not a fixed-height Row.
+    //
+    // Vertical space is the scarce resource in landscape (360dp), so this started as a single
+    // 40dp line. Measured in portrait: the status text plus three controls do not fit the
+    // narrow width, and a fixed-height Row either clips them or squashes the labels (the
+    // probe screen's buttons rendered as a vertical column of characters the same way).
+    // FlowRow wraps, and the height follows the content.
     val connectedNames = paired.filter { it.address in connected }.map { it.name }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(40.dp),
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        itemVerticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = if (connectedNames.isEmpty()) {
