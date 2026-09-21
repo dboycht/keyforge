@@ -15,6 +15,7 @@ import androidx.core.content.ContextCompat
 import com.dboycht.keyforge.hid.HidReport
 import com.dboycht.keyforge.hid.KeyboardState
 import com.dboycht.keyforge.probe.ProbeConstants
+import com.dboycht.keyforge.text.KeySink
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,7 +73,22 @@ internal class HidSession(
     private val context: Context,
     private val clock: SessionClock,
     private val onEvent: (String) -> Unit,
-) {
+) : KeySink {
+
+    /**
+     * [KeySink] implementation for text forwarding: it wants a plain yes/no rather than a
+     * [SessionResult], and the real methods already do the logging.
+     */
+    override fun press(usageCode: Int): Boolean =
+        pressKey(usageCode, usageCode) is SessionResult.Ok
+
+    override fun release(usageCode: Int): Boolean =
+        releaseKey(usageCode, usageCode) is SessionResult.Ok
+
+    override fun releaseSinkKeys() {
+        releaseAll()
+    }
+
     private val tag = ProbeConstants.TAG
 
     private val _state = MutableStateFlow(SessionUiState())
@@ -386,8 +402,7 @@ internal class HidSession(
     }
 
     /** Sends the "all keys up" report to every connected host: clears stuck keys. */
-    fun releaseAll(): SessionResult {
-        val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
+    fun releaseAll(): SessionResult {        val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
         val targets = deviceTargets()
         if (targets.isEmpty()) return SessionResult.Rejected("no host connected")
         val ok: Boolean
