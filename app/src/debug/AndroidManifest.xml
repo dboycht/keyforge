@@ -31,6 +31,15 @@
                 <action android:name="com.dboycht.keyforge.action.DEBUG_TYPE" />
             </intent-filter>
         </receiver>
+
+        <!-- A plain text box, so the input method has somewhere to appear. Exported so the
+             dev harness can open it directly:
+             `adb shell am start -n com.dboycht.keyforge.debug/com.dboycht.keyforge.ime.ImeTestActivity`.
+             Debug-only: it is a test harness, not a feature. -->
+        <activity
+            android:name=".ime.ImeTestActivity"
+            android:exported="true"
+            android:label="@string/ime_test_title" />
     </application>
 
 </manifest>

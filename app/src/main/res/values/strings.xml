@@ -30,9 +30,13 @@
 
     <!-- Input method -->
     <string name="ime_service_name">键铸输入法</string>
+    <string name="ime_test_title">键铸 · 输入法测试（调试版）</string>
     <string name="ime_field_label">要发送的文本（仅 ASCII 可发送）</string>
     <string name="ime_action_send">发送</string>
     <string name="ime_status_ready">已就绪，等待在键盘页连接主机</string>
+    <string name="ime_status_sending">正在发送…</string>
+    <string name="ime_status_not_ready">会话未就绪（%1$s）</string>
+    <string name="ime_sent_count">已发送 %1$d 个字符</string>
     <string name="ime_skipped_header">以下字符无法通过蓝牙键盘发送（HID 只有按键扫描码）：</string>
     <string name="keyboard_section_log">会话事件（越靠下越新）</string>
     <string name="keyboard_not_connected">未连接</string>

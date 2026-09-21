@@ -1,36 +1,20 @@
 package com.dboycht.keyforge.ime
 
+import android.graphics.Color
+import android.text.InputType
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.inputmethodservice.InputMethodService
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.unit.dp
+import android.widget.Button
+import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import com.dboycht.keyforge.keyboard.KeyboardService
 import com.dboycht.keyforge.session.HidSessionManager
 import com.dboycht.keyforge.session.SessionPhase
-import com.dboycht.keyforge.text.TextForwarder
 import com.dboycht.keyforge.text.TextSender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,18 +25,26 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * The input-method flavour of KeyForge: type here, and the keystrokes go to the connected
- * host over Bluetooth HID instead of into this phone.
+ * The input-method flavour of KeyForge: type here, and the keystrokes go to the connected host
+ * over Bluetooth HID instead of into this phone.
  *
- * Why this exists next to the on-screen keyboard screen: that screen is a full-screen
- * takeover, which suits "the host is at arm's length and I drive everything from the
- * phone". The input method suits the other case - the phone's own text editing
- * (suggestions, autocorrect, cursor movement, clipboard) stays available while the
- * *output* is the host.
+ * Why an input method exists next to the on-screen keyboard screen: that screen is a
+ * full-screen takeover, which suits "the host is at arm's length and I drive everything from
+ * the phone". The input method suits the other case - the phone's own text editing
+ * (suggestions, autocorrect, cursor movement, clipboard) stays available while the *output* is
+ * the host.
+ *
+ * **Why the input view is built from classic views instead of Compose.** A `ComposeView`
+ * inside an `InputMethodService` crashes when the platform attaches it, because Compose
+ * resolves its recomposer from the *window's* lifecycle owner and an input method's window is
+ * built by the platform (measured: `IllegalStateException: ViewTreeLifecycleOwner not found
+ * from ... android:id/parentPanel`, on `ComposeView.onAttachedToWindow`). The crash also takes
+ * the app being typed into down with it. One text field and one button do not justify fighting
+ * that, so this view is plain Android while the rest of the app stays Compose.
  *
  * The hard honesty requirement from the project rules: **HID keyboards only carry key
- * scancodes**, so Chinese, emoji and other non-ASCII characters have none. They are
- * reported to the user rather than silently dropped or turned into wrong keys.
+ * scancodes**, so Chinese, emoji and other non-ASCII characters have none. They are reported
+ * to the user rather than silently dropped or turned into wrong keys.
  */
 class KeyforgeImeService : InputMethodService() {
 
@@ -68,36 +60,83 @@ class KeyforgeImeService : InputMethodService() {
     /** Guards the in-flight send so a second one cannot interleave with it. */
     private var sendJob: Job? = null
 
+    /** Views, kept so results and status can be updated after the send completes. */
+    private var inputField: EditText? = null
+    private var statusView: TextView? = null
+    private var resultView: TextView? = null
+
     override fun onCreate() {
         super.onCreate()
-        // The IME shares the process-wide session, and that session must outlive both the
-        // IME and the keyboard screen: the foreground service owns it.
+        // The IME shares the process-wide session, and that session must outlive both the IME
+        // and the keyboard screen: the foreground service owns it.
         KeyboardService.start(this)
     }
 
     override fun onCreateInputView(): View {
-        val view = ComposeView(this).apply {
-            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        val field = EditText(this).apply {
+            hint = getString(com.dboycht.keyforge.R.string.ime_field_label)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            setSingleLine(true)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
         }
-        view.setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
-                Surface {
-                    val state by session.state.collectAsState()
-                    ImeScreen(
-                        connected = state.connectedDevices,
-                        phase = state.phase,
-                        send = { text, onResult -> startSend(text, onResult) },
+        val send = Button(this).apply {
+            text = getString(com.dboycht.keyforge.R.string.ime_action_send)
+            setOnClickListener { sendTypedText() }
+        }
+        val status = TextView(this).apply {
+            textSize = 11f
+            setTextColor(Color.LTGRAY)
+        }
+        val result = TextView(this).apply {
+            textSize = 11f
+            setTextColor(Color.LTGRAY)
+        }
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(field, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(send, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.parseColor("#1C1B1F"))
+            setPadding(16, 8, 16, 8)
+            addView(row)
+            addView(status)
+            // The skip report can be several lines; keep it scrollable and bounded so the
+            // input method never grows tall enough to bury the app being typed into.
+            addView(
+                ScrollView(this@KeyforgeImeService).apply {
+                    addView(result)
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        0,
+                        1f,
                     )
-                }
-            }
+                },
+            )
         }
-        return view
+
+        inputField = field
+        statusView = status
+        resultView = result
+        refreshStatus()
+        return column
     }
 
-    override fun onStartInput(attribute: android.view.inputmethod.EditorInfo?, restarting: Boolean) {
+    override fun onStartInput(attribute: EditorInfo?, restarting: Boolean) {
         super.onStartInput(attribute, restarting)
         // Selecting the IME is exactly when the session should be live.
         session.start()
+        refreshStatus()
+    }
+
+    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        super.onStartInputView(info, restarting)
+        refreshStatus()
     }
 
     override fun onFinishInput() {
@@ -114,108 +153,64 @@ class KeyforgeImeService : InputMethodService() {
         super.onDestroy()
     }
 
-    private fun startSend(text: String, onResult: (TextSender.Outcome) -> Unit) {
+    private fun sendTypedText() {
+        val payload = inputField?.text?.toString().orEmpty()
+        if (payload.isEmpty()) return
+
+        // Disable the button while a send is running: two interleaved sends would produce
+        // interleaved keystrokes, and the session serialises reports but not character order.
+        val field = inputField
         if (sendJob?.isActive == true) return
+        setSending(true)
+
         sendJob = scope.launch {
-            onResult(sender.send(text) { ms -> delay(ms) })
+            val outcome = sender.send(payload) { ms -> delay(ms) }
+            // Clear only what actually went out, so the user can retry the rest instead of
+            // retyping the whole line.
+            if (outcome.failure == null && outcome.skipped.isEmpty()) field?.setText("")
+            showOutcome(outcome)
+            setSending(false)
         }
     }
-}
 
-/**
- * The IME's own UI: one text field, one send button, and an honest report of what could
- * not be sent.
- *
- * Kept deliberately short in height - an input method shares the screen with the app the
- * user is actually typing into, and the system may give it very little room.
- */
-@Composable
-private fun ImeScreen(
-    connected: List<String>,
-    phase: SessionPhase,
-    send: (String, (TextSender.Outcome) -> Unit) -> Unit,
-) {
-    var text by remember { mutableStateOf("") }
-    var outcome by remember { mutableStateOf<TextSender.Outcome?>(null) }
-    val scope = rememberCoroutineScope()
+    private fun setSending(sending: Boolean) {
+        inputField?.isEnabled = !sending
+        refreshStatus(sending = sending)
+    }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            OutlinedTextField(
-                value = text,
-                onValueChange = {
-                    text = it
-                    outcome = null
-                },
-                modifier = Modifier.weight(1f),
-                label = { Text("要发送的文本（仅 ASCII 可发送）") },
-                singleLine = true,
-            )
-            Button(
-                onClick = {
-                    val payload = text
-                    if (payload.isNotEmpty()) {
-                        send(payload) { result ->
-                            outcome = result
-                            // Clear only what actually went out, so the user can retry
-                            // the rest instead of retyping the whole line.
-                            if (result.failure == null && result.skipped.isEmpty()) text = ""
-                        }
-                    }
-                },
-            ) {
-                Text("发送")
+    private fun showOutcome(outcome: TextSender.Outcome) {
+        val reported = buildString {
+            append(getString(com.dboycht.keyforge.R.string.ime_sent_count, outcome.sent))
+            outcome.failure?.let { append("；").append(it) }
+        }
+        val skipped = outcome.skipped
+        resultView?.text = if (skipped.isEmpty()) {
+            reported
+        } else {
+            // This is the honesty requirement made visible: name every character that cannot
+            // travel over a HID keyboard, and say why.
+            buildString {
+                appendLine(reported)
+                appendLine(getString(com.dboycht.keyforge.R.string.ime_skipped_header))
+                skipped.forEach { appendLine("${it.char}：${it.reason}") }
             }
         }
+        resultView?.setTextColor(if (outcome.failure == null) Color.parseColor("#81C784") else Color.parseColor("#EF9A9A"))
+    }
 
-        val statusLine = when {
-            connected.isNotEmpty() -> "已连接：${connected.joinToString()}" to ImePass
-            phase == SessionPhase.Registered -> "已就绪，等待在键盘页连接主机" to ImeWarn
-            else -> "会话未就绪（$phase）" to ImeWarn
+    private fun refreshStatus(sending: Boolean = false) {
+        val state = session.state.value
+        val text = when {
+            sending -> getString(com.dboycht.keyforge.R.string.ime_status_sending)
+            state.connectedDevices.isNotEmpty() ->
+                getString(com.dboycht.keyforge.R.string.keyboard_connected_to, state.connectedDevices.joinToString())
+            state.phase == SessionPhase.Registered ->
+                getString(com.dboycht.keyforge.R.string.ime_status_ready)
+            else -> getString(com.dboycht.keyforge.R.string.ime_status_not_ready, state.phase.name)
         }
-        Text(
-            text = statusLine.first,
-            color = statusLine.second,
-            style = MaterialTheme.typography.bodySmall,
+        statusView?.text = text
+        statusView?.setTextColor(
+            if (state.connectedDevices.isNotEmpty()) Color.parseColor("#81C784") else Color.parseColor("#FFB74D"),
         )
-
-        outcome?.let { result ->
-            val reported = buildString {
-                append("已发送 ${result.sent} 个字符")
-                result.failure?.let { append("；失败：$it") }
-            }
-            Text(
-                text = reported,
-                color = if (result.failure == null) ImePass else ImeFail,
-                style = MaterialTheme.typography.bodySmall,
-            )
-            if (result.skipped.isNotEmpty()) {
-                // This is the honesty requirement made visible.
-                Text(
-                    text = "以下字符无法通过蓝牙键盘发送（HID 只有按键扫描码）：",
-                    color = ImeFail,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Text(
-                    text = result.skipped.joinToString("、") { "${it.char}：${it.reason}" },
-                    color = ImeFail,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                )
-            }
-        }
     }
 }
-
-private val ImePass = Color(0xFF2E7D32)
-private val ImeWarn = Color(0xFFB26A00)
-private val ImeFail = Color(0xFFB3261E)
