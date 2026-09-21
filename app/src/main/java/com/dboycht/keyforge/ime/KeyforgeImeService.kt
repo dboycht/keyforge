@@ -93,10 +93,14 @@ class KeyforgeImeService : InputMethodService() {
             setTextColor(Color.LTGRAY)
         }
 
-        val row = LinearLayout(this).apply {
+        // The field and the button live on separate lines rather than side by side.
+        //
+        // Tested in portrait on a phone: side by side left the field ~90dp wide and the
+        // button cramped against the edge - awkward exactly where the user has to type. A
+        // full-width field with the button beneath it is easier to hit in both orientations.
+        val sendRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(field, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            gravity = Gravity.END
             addView(send, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
 
@@ -104,7 +108,11 @@ class KeyforgeImeService : InputMethodService() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.parseColor("#1C1B1F"))
             setPadding(16, 8, 16, 8)
-            addView(row)
+            addView(
+                field,
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            )
+            addView(sendRow)
             addView(status)
             // The skip report can be several lines; keep it scrollable and bounded so the
             // input method never grows tall enough to bury the app being typed into.

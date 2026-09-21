@@ -45,11 +45,14 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Keyforge">
 
+        <!-- The app's two screens follow the phone's rotation on purpose.
+             User request: "横屏比较难操作" - the full screen keyboard has to work in portrait
+             too, and the diagnostics page is easier to read upright. KeyboardView adapts the
+             grid to whatever space it is granted, so the same layouts work either way. -->
         <activity
             android:name=".probe.ProbeActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode"
             android:exported="true"
-            android:screenOrientation="sensorLandscape"
             android:label="@string/probe_title">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -64,7 +67,6 @@
             android:name=".keyboard.KeyboardActivity"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|density|uiMode"
             android:exported="false"
-            android:screenOrientation="sensorLandscape"
             android:label="@string/keyboard_title" />
 
         <!-- Owns the single HID registration and the host connection, so the

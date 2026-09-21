@@ -35,10 +35,15 @@
         <!-- A plain text box, so the input method has somewhere to appear. Exported so the
              dev harness can open it directly:
              `adb shell am start -n com.dboycht.keyforge.debug/com.dboycht.keyforge.ime.ImeTestActivity`.
-             Debug-only: it is a test harness, not a feature. -->
+             Debug-only: it is a test harness, not a feature.
+
+             Portrait on purpose: the app's own screens are landscape, and testing an input
+             method in landscape is awkward - the keyboard eats most of the screen and the
+             field is hard to reach. Portrait is how a user would normally type. -->
         <activity
             android:name=".ime.ImeTestActivity"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:label="@string/ime_test_title" />
     </application>
 
