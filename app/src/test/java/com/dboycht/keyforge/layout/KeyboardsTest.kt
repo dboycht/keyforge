@@ -238,4 +238,22 @@ class KeyboardsTest {
         assertEquals(Keyboards.all.first().id, Keyboards.byId(null).id)
         assertEquals(Keyboards.all.first().id, Keyboards.byId("no-such-layout").id)
     }
+
+    @Test
+    fun `a narrow window gets the fewest-column layout, a wide one gets the full keyboard`() {
+        // Portrait phone reasoning: 360dp / 15 columns = a 24dp key, smaller than a fingertip,
+        // while the 10-column phone layout gives 36dp. The default therefore depends on width.
+        val narrow = Keyboards.defaultFor(wide = false)
+        val wide = Keyboards.defaultFor(wide = true)
+
+        assertEquals(Keyboards.PHONE_STYLE.id, narrow.id)
+        assertEquals(Keyboards.PC_60.id, wide.id)
+
+        // The narrow default must genuinely have fewer columns, otherwise choosing it would
+        // not buy the user any key size.
+        assertTrue(
+            "narrow default (${narrow.widthUnits}) must be narrower than wide (${wide.widthUnits})",
+            narrow.widthUnits < wide.widthUnits,
+        )
+    }
 }

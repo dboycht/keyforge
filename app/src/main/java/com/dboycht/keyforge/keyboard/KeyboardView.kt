@@ -8,7 +8,9 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -44,19 +46,21 @@ import kotlinx.coroutines.launch
 internal val KeyUnit = 38.dp
 
 /** Height the grid asks for: the tallest shipped layout (5 rows) at [KeyUnit]. */
-internal val KeyboardGridHeight = KeyUnit * 5 * 1.12f
+internal val KeyboardGridHeight = KeyUnit * 5 * RowHeightFactor
+
+/** How much taller a row is than it is wide. A key cap is never square. */
+private const val RowHeightFactor = 1.25f
 
 /**
- * Clamp for the computed key unit. The lower bound keeps taps possible on a very short
- * window; the upper bound stops the keyboard from looking absurd on a large screen.
+ * Lower bound for the computed key unit: keeps keys tappable in a very short window.
  *
- * Measured on device (landscape phone, 804x360dp window): with the upper bound at 46dp the
- * full screen layout used 257.6dp of the 322dp it was granted, leaving a 193px black band
- * between the bottom row and the screen edge. 64dp lets the grid actually reach the bottom
- * while still refusing to draw comically large keys.
+ * There is deliberately **no upper bound**. One used to exist (64dp) and it caused a real
+ * bug: in portrait it capped a key at 23dp wide, so a 15-unit layout collapsed into a strip
+ * at the bottom of an otherwise empty screen. Key proportions are already bounded by
+ * [RowHeightFactor], and the width of the window bounds the unit, so a ceiling adds nothing
+ * except a way to be wrong.
  */
 private val MinKeyUnit = 24.dp
-private val MaxKeyUnit = 64.dp
 
 /** Padding around the whole grid. */
 private val GridPadding = 2.dp
@@ -137,37 +141,52 @@ internal fun KeyboardView(
     // whenever it changes, which is the ground truth for the highlight.
     LaunchedEffect(pressed) { traceKeyHighlight(pressed) }
 
-    // Fit the grid to the space granted by the parent: width decides the raw unit, height
-    // caps it, and the ROW HEIGHT is then derived from the granted height so the keys fill
-    // the container exactly.
+    // Fit the grid to the space granted by the parent. One rule decides everything: the key
+    // unit comes from the WIDTH (that is what makes a keyboard look right), and the row height
+    // follows from the unit. The height only ever *limits* the grid, it never stretches it.
     //
-    // The exact-fill step is the fix for the black band the user reported. Measured on
-    // device: the window frame is the full screen ([0,0][2412,1080]), but the keys stopped
-    // 63px short of the bottom. The grid was sized as `unit * 1.12` per row, and while
-    // padding and row gaps were drawn *around* the rows, they were never subtracted from
-    // the height budget - so the last few dp of every layout came out empty.
+    // History, because this was wrong three times in a row:
+    //  1. `unit * 1.12` per row with no height budget  -> 63px empty band under the last row.
+    //  2. "container height / rows"                    -> in portrait every key became a tall
+    //     thin pillar (72dp wide, 153dp high) with the label stranded at the top.
+    //  3. a fixed `MaxKeyUnit` ceiling                 -> in portrait it capped the width to
+    //     23dp per key, so a 15-unit layout collapsed into a strip at the bottom while most of
+    //     the screen sat empty.
+    // The proportions of a key are already bounded by the 1.25 factor below, so no arbitrary
+    // ceiling is needed; only a floor, to keep keys tappable in a very short window.
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val rows = layout.rows.size.coerceAtLeast(1)
-        val unitFromWidth = maxWidth / layout.widthUnits
-        val unitFromHeight = maxHeight / (rows * 1.12f)
-        val unit = minOf(unitFromWidth, unitFromHeight)
-            .coerceAtLeast(MinKeyUnit)
-            .coerceAtMost(MaxKeyUnit)
-
-        // Height budget: the top padding and the gaps between rows. What is left is shared
-        // equally by the rows, so the last row ends exactly at the bottom edge.
         val gapsAndPadding = GridPadding + RowGap * (rows - 1)
-        val rowHeight = ((maxHeight - gapsAndPadding) / rows)
+
+        val unitFromWidth = maxWidth / layout.widthUnits
+        // The tallest the unit may be without the grid overflowing the height budget.
+        val unitFromHeight = (maxHeight - gapsAndPadding) / (rows * RowHeightFactor)
+        val unit = minOf(unitFromWidth, unitFromHeight).coerceAtLeast(MinKeyUnit)
+
+        // Rows are slightly taller than they are wide, which is what a key cap looks like.
+        // Never larger than the space available, so the grid can always fit.
+        val heightPerRow = (maxHeight - gapsAndPadding) / rows
+        val rowHeight = minOf(unit * RowHeightFactor, heightPerRow)
+
+        // When the rows cannot use the whole height (portrait: the window is much taller than
+        // the keys need), the leftover goes ABOVE the grid so the keyboard sits at the bottom -
+        // where thumbs are. Without this the keys would float in the middle of the screen.
+        val anchorToBottom = rowHeight < heightPerRow
 
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                // No bottom padding: the grid is sized to reach the bottom edge exactly, so
-                // reserving space below the last row would reopen the very gap this is
-                // fixing (measured 63px of empty background under the bottom key row).
+                // Fills the height so the bottom-anchoring Spacer below can claim the slack.
+                .fillMaxSize()
+                // No bottom padding: when the rows do fill the height they reach the bottom
+                // edge exactly, and reserving space below the last row would reopen the gap
+                // that was measured at 63px under the bottom key row.
                 .padding(start = GridPadding, end = GridPadding, top = GridPadding),
             verticalArrangement = Arrangement.spacedBy(RowGap),
         ) {
+            // The slack above the keys, so the keyboard sits where thumbs are.
+            if (anchorToBottom) {
+                Spacer(Modifier.fillMaxWidth().weight(1f))
+            }
             layout.rows.forEach { row ->
                 Row(
                     modifier = Modifier

@@ -303,4 +303,14 @@ internal object Keyboards {
 
     /** Looks up a layout by id, falling back to the first one. */
     fun byId(id: String?): KeyboardLayout = all.firstOrNull { it.id == id } ?: all.first()
+
+    /**
+     * The layout to use when the user has not chosen one.
+     *
+     * [wide] describes the window, not the device: the same phone is narrow in portrait and
+     * wide in landscape. Narrow windows get [PHONE_STYLE], because 10 unit columns at 360dp
+     * give a 36dp key while the 15-unit PC layout would give 24dp - smaller than a fingertip.
+     * Wide windows get the full PC layout.
+     */
+    fun defaultFor(wide: Boolean): KeyboardLayout = if (wide) PC_60 else PHONE_STYLE
 }

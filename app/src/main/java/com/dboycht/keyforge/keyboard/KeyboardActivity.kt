@@ -53,6 +53,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -162,9 +163,21 @@ private fun KeyboardScreen(
     val state by session.state.collectAsState()
     val modifierLatch by settings.modifierLatch.collectAsState()
     val fullscreenEnabled by settings.fullscreen.collectAsState()
-    // Which layout is on screen. The choice is remembered, and switching is a data
-    // change: the renderer below is the same for every layout.
+    // Which layout is on screen. A saved choice always wins; when the user has never chosen,
+    // a narrow window gets the 10-unit phone layout instead of the 15-unit PC one.
+    //
+    // Measured in portrait on a 360dp-wide phone: 15 unit columns give a 24dp key, smaller
+    // than a fingertip, while 10 units give 36dp. A keyboard that is complete but unusable is
+    // worse than one with fewer keys, and the full layout is still one pick away.
+    val widthDp = LocalConfiguration.current.screenWidthDp
     var layout by remember { mutableStateOf(Keyboards.byId(settings.layoutId.value)) }
+    LaunchedEffect(widthDp, settings.layoutId.value) {
+        // Only when the choice is unset; otherwise the user's pick would be overwritten on
+        // every rotation.
+        if (settings.layoutId.value == null) {
+            layout = Keyboards.defaultFor(wide = widthDp >= NARROW_WIDTH_DP)
+        }
+    }
     var lastResult by remember { mutableStateOf<String?>(null) }
     // Which overlay is open in full screen. One at a time, and it closes on selection
     // so the user always ends up back at the keyboard.
@@ -339,6 +352,14 @@ private fun DiagnosticsPanel(
 private enum class FullscreenPanel { NONE, DEVICES, SETTINGS }
 
 /**
+ * Below this width (dp) the app prefers a layout with fewer, wider keys.
+ *
+ * A phone in portrait is about 360dp wide: split into the 15 columns of the PC layout that is
+ * a 24dp key, which is smaller than a fingertip.
+ */
+private const val NARROW_WIDTH_DP = 600
+
+/**
  * The key grid, wired to the session.
  *
  * Extracted so the full screen layout and the normal layout render the *same* keyboard:
@@ -395,48 +416,58 @@ private fun ModifierModeRow(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
+        Text(
+            text = stringResource(R.string.keyboard_section_settings),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // Switch on one line, explanation on the next.
+        //
+        // Measured in portrait: label + switch + hint on a single line forced the hint to wrap
+        // into three short lines ("（打开后隐藏系统栏、键盘 / 占满屏幕；键盘只在全屏下 / 显示）"),
+        // which reads badly and made the rows tall. Splitting them keeps each row one line of
+        // label plus one line of explanation in both orientations.
+        SettingRow(
+            label = stringResource(R.string.keyboard_fullscreen),
+            hint = stringResource(R.string.keyboard_fullscreen_hint),
+            checked = fullscreen,
+            onCheckedChange = onFullscreenToggle,
+        )
+        SettingRow(
+            label = stringResource(R.string.keyboard_modifier_latch),
+            hint = if (latch) {
+                "粘滞：点一下亮、再点一下灭"
+            } else {
+                "默认同电脑键盘：按住生效、松手释放"
+            },
+            checked = latch,
+            onCheckedChange = onToggle,
+        )
+    }
+}
+
+/** A labelled switch with its explanation on the line below. */
+@Composable
+private fun SettingRow(
+    label: String,
+    hint: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = stringResource(R.string.keyboard_section_settings),
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                text = stringResource(R.string.keyboard_fullscreen),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Switch(checked = fullscreen, onCheckedChange = onFullscreenToggle)
-            Text(
-                text = stringResource(R.string.keyboard_fullscreen_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Text(text = label, style = MaterialTheme.typography.bodyMedium)
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.keyboard_modifier_latch),
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(start = 40.dp),
-            )
-            Switch(checked = latch, onCheckedChange = onToggle)
-            Text(
-                text = if (latch) {
-                    "粘滞：点一下亮、再点一下灭"
-                } else {
-                    "默认同电脑键盘：按住生效、松手释放"
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
+        Text(
+            text = hint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
