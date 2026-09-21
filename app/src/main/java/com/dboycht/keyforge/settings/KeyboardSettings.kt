@@ -21,6 +21,8 @@ internal class KeyboardSettings private constructor(context: Context) {
 
     private val _modifierLatch = MutableStateFlow(prefs.getBoolean(KEY_MODIFIER_LATCH, false))
     private val _haptics = MutableStateFlow(prefs.getBoolean(KEY_HAPTICS, true))
+    private val _fullscreen = MutableStateFlow(prefs.getBoolean(KEY_FULLSCREEN, false))
+    private val _layoutId = MutableStateFlow(prefs.getString(KEY_LAYOUT_ID, null))
 
     /**
      * When true, Shift/Ctrl/Alt/Win behave like phone-keyboard toggles (tap to latch,
@@ -32,6 +34,18 @@ internal class KeyboardSettings private constructor(context: Context) {
     /** Reserved: whether to vibrate on key press. */
     val haptics: StateFlow<Boolean> = _haptics.asStateFlow()
 
+    /**
+     * "Full screen keyboard": the app hides the system bars so the keyboard owns the
+     * screen. Remembered, because a mode that forgets itself reads as a bug.
+     */
+    val fullscreen: StateFlow<Boolean> = _fullscreen.asStateFlow()
+
+    /**
+     * Id of the keyboard layout to show, or `null` when the user has never chosen one
+     * (the caller then falls back to the default layout).
+     */
+    val layoutId: StateFlow<String?> = _layoutId.asStateFlow()
+
     fun setModifierLatch(enabled: Boolean) {
         prefs.edit { putBoolean(KEY_MODIFIER_LATCH, enabled) }
         _modifierLatch.value = enabled
@@ -42,10 +56,22 @@ internal class KeyboardSettings private constructor(context: Context) {
         _haptics.value = enabled
     }
 
+    fun setFullscreen(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_FULLSCREEN, enabled) }
+        _fullscreen.value = enabled
+    }
+
+    fun setLayoutId(id: String?) {
+        prefs.edit { putString(KEY_LAYOUT_ID, id) }
+        _layoutId.value = id
+    }
+
     companion object {
         private const val PREFS_NAME = "keyforge.settings"
         private const val KEY_MODIFIER_LATCH = "modifier_latch"
         private const val KEY_HAPTICS = "haptics"
+        private const val KEY_FULLSCREEN = "fullscreen"
+        private const val KEY_LAYOUT_ID = "layout_id"
 
         @Volatile
         private var instance: KeyboardSettings? = null

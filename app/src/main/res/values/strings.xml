@@ -20,6 +20,13 @@
     <string name="keyboard_layout_hint">（切换布局会先松开所有按键）</string>
     <string name="keyboard_section_settings">设置</string>
     <string name="keyboard_modifier_latch">Shift/Ctrl 点一下保持</string>
+    <string name="keyboard_fullscreen">全屏键盘</string>
+    <string name="keyboard_fullscreen_hint">（隐藏系统栏，键盘占满屏幕；下滑可临时呼出系统栏）</string>
+    <string name="keyboard_exit_fullscreen">退出全屏</string>
+    <string name="keyboard_panel_devices">设备</string>
+    <string name="keyboard_panel_settings">设置</string>
+    <string name="keyboard_panel_close">收起</string>
+    <string name="keyboard_action_choose_layout">选择布局</string>
     <string name="keyboard_section_log">会话事件（越靠下越新）</string>
     <string name="keyboard_not_connected">未连接</string>
     <string name="keyboard_connected_to">已连接：%1$s</string>
