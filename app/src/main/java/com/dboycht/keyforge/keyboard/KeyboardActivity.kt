@@ -218,53 +218,31 @@ private fun KeyboardScreen(
             )
             return@Scaffold
         }
-        // The normal layout splits the window explicitly instead of relying on weights.
+        // Normal (non full screen) layout: connection + settings only, NO keyboard.
         //
-        // Why: `weight` on both the diagnostics and the keys measured wrong on device -
-        // first `weight(1.5f)` on the keyboard squeezed the layout picker until it was half
-        // hidden behind the keys, and `weight(1f, fill = false)` then left the keyboard
-        // tiny. Measuring the window and handing the keyboard a bounded share is
-        // deterministic and readable.
-        BoxWithConstraints(
+        // Requested by the user, and it resolves the whole space fight this screen kept
+        // losing: squeezed between the diagnostics and a shared window, the keys came out
+        // too short to type on (and repeatedly ended up clipped or sitting on a band of
+        // empty background). The keyboard now has exactly one home - full screen - where it
+        // gets the entire window, and this page is free to be a normal settings page.
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp, vertical = 6.dp),
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .verticalScroll(rememberScrollState()),
         ) {
-            val keyboardHeight = (maxHeight * DiagnosticSplit.keyboardFraction)
-                .coerceIn(DiagnosticSplit.minKeyboard, DiagnosticSplit.maxKeyboard)
-
-            Column(modifier = Modifier.fillMaxSize()) {
-                // The diagnostics take every pixel the keyboard does not need.
-                DiagnosticsPanel(
-                    session = session,
-                    state = state,
-                    layout = layout,
-                    lastResult = lastResult,
-                    modifierLatch = modifierLatch,
-                    fullscreenEnabled = fullscreenEnabled,
-                    settings = settings,
-                    onLayoutPick = { switchLayout(it) },
-                    onReleaseAll = { run { session.releaseAll() } },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                )
-
-                // Pinned keyboard with the height computed above, so the diagnostics keep
-                // the rest of the window and the layout picker stays visible.
-                KeyboardGrid(
-                    layout = layout,
-                    session = session,
-                    scope = scope,
-                    keyDispatcher = keyDispatcher,
-                    modifierLatch = modifierLatch,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(keyboardHeight),
-                )
-            }
+            DiagnosticsPanel(
+                session = session,
+                state = state,
+                layout = layout,
+                lastResult = lastResult,
+                modifierLatch = modifierLatch,
+                fullscreenEnabled = fullscreenEnabled,
+                settings = settings,
+                onLayoutPick = { switchLayout(it) },
+                onReleaseAll = { run { session.releaseAll() } },
+            )
         }
     }
 }
@@ -273,9 +251,10 @@ private fun KeyboardScreen(
  * Everything above the keyboard in the normal layout: the connection bar, the layout
  * picker, the settings and the event log.
  *
- * Extracted for two reasons: the split between this and the keyboard is the part that keeps
- * going wrong (see [DiagnosticSplit]), and keeping it as one component stops the screen
- * function from growing a fourth level of nesting.
+ * Extracted because this band is the part that keeps going wrong on device (it has been
+ * clipped by the screen edge, had its device list squeezed to nothing, and been covered by
+ * the keys), and because it keeps the screen function from growing another level of
+ * nesting.
  */
 @Composable
 private fun DiagnosticsPanel(
@@ -353,21 +332,6 @@ private fun DiagnosticsPanel(
             }
         }
     }
-}
-
-/**
- * How the normal (non full screen) layout divides the window between the keyboard and the
- * diagnostics.
- *
- * A bounded fraction rather than a weight: the keyboard must claim *most* of a short
- * landscape window, but it must not grow so tall that the information above it - the
- * connection bar, the layout picker, the settings and the event log - gets squeezed out.
- * These numbers were chosen against a 360dp-tall landscape phone.
- */
-private object DiagnosticSplit {
-    const val keyboardFraction = 0.58f
-    val minKeyboard = 150.dp
-    val maxKeyboard = 260.dp
 }
 
 /** Which overlay is open in full screen mode. */
