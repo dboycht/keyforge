@@ -107,7 +107,8 @@ $env:JAVA_HOME = "<你的 JDK 17+ 目录>"
 
 ## 版本
 
-版本号单一来源：`app/build.gradle.kts` 的 `versionName`（当前 `1.0.2`，`1.0.1` 为已发布版本）。
+版本号单一来源：`app/build.gradle.kts` 的 `versionName`（当前 `1.0.3` 为开发中版本；
+`1.0.2`、`1.0.1` 为已发布版本）。
 打 tag / 发 Release 由维护者按需触发。
 
 > 说明：目前的 release 构建用**调试密钥**签名（`tools/sign-apk.ps1`），
