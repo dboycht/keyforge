@@ -366,7 +366,7 @@ internal class HidSession(
      * gesture with two fingers, so the UI must be able to commit the modifier
      * first and keep it down across other keys.
      */
-    fun pressKey(keyCode: Int, usage: Int): SessionResult {
+    fun pressKey(keyCode: Int, usage: Int, log: Boolean = true): SessionResult {
         val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
         val targets = deviceTargets()
         if (targets.isEmpty()) return SessionResult.Rejected("no host connected - press Connect first")
@@ -381,7 +381,10 @@ internal class HidSession(
             ok = targets.all { send(hid, it, press.report) }
         }
         if (!ok) return SessionResult.Rejected("sendReport failed (see log)")
-        event("down ${keyName(keyCode)} usage=0x%02X".format(usage))
+        // `log = false` for a keep-alive: the report is byte-identical to the press that already
+        // logged, and a 50ms cadence would otherwise flood the event list (see ERROR.md E9 for how
+        // badly that went last time).
+        if (log) event("down ${keyName(keyCode)} usage=0x%02X".format(usage))
         return SessionResult.Ok("pressed 0x%02X".format(usage))
     }
 

@@ -27,15 +27,31 @@ internal data class KeySpec(
         get() = com.dboycht.keyforge.hid.HidKeyMap.isModifierKeyCode(keyCode)
 
     /**
-     * Whether holding this key should auto-repeat.
+     * What holding this key should do.
      *
-     * Every ordinary key repeats, matching a hardware keyboard (holding any key repeats it). Two
-     * exceptions: the **modifier keys**, which latch on this keyboard - repeating Shift/Ctrl is
-     * meaningless and they never travel in a key slot anyway - and **spacers**, which are not keys
-     * at all.
+     * **This is the fix for "held keys behave like a pulse, not like a real keyboard"**: an ordinary
+     * key now goes down and *stays* down while the finger is on it ([com.dboycht.keyforge.keyboard.
+     * RepeatMode.HOLD]), and the host generates the repeated characters itself - exactly what a USB
+     * keyboard does. Previously every repeat tick sent a release, so a game saw "tapped repeatedly"
+     * and a held movement key made the character stutter.
      *
-     * The first repeat waits [AUTO_REPEAT_DELAY_MS]; afterwards the key repeats every
-     * [AUTO_REPEAT_INTERVAL_MS]. The delay is what keeps a normal tap from doubling.
+     * Two exceptions keep the old "one keystroke" semantics:
+     * - the **modifier keys**, which latch here - repeating Shift/Ctrl is meaningless and they never
+     *   travel in a key slot anyway;
+     * - the **spacers**, which are not keys at all.
+     */
+    val repeatMode: com.dboycht.keyforge.keyboard.RepeatMode
+        get() = if (!supportsAutoRepeat) {
+            com.dboycht.keyforge.keyboard.RepeatMode.ONESHOT
+        } else {
+            com.dboycht.keyforge.keyboard.RepeatMode.HOLD
+        }
+
+    /**
+     * Whether holding this key should auto-repeat at all.
+     *
+     * The timing that governs it lives in [AUTO_REPEAT_DELAY_MS] / [AUTO_REPEAT_INTERVAL_MS]; the
+     * *behaviour* (hold versus pulse) lives in [repeatMode].
      */
     val supportsAutoRepeat: Boolean
         get() = !isModifier && kind != KeyKind.SPACER

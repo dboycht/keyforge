@@ -453,16 +453,26 @@ private fun KeyboardGrid(
     KeyboardView(
         layout = layout,
         modifier = modifier,
-        // Ordinary key: one tap = one keystroke, nothing stays held.
+        // One-shot key: down and up in one go, nothing stays held.
         onKeyTap = { key ->
             key.usage?.let { usage ->
                 scope.launch(keyDispatcher) { session.tapKey(key.keyCode, usage) }
             }
         },
-        // Holding a key keeps sending (pulse output), like a real keyboard.
-        onKeyRepeat = { key ->
+        // Held key (the physical-keyboard behaviour, and the fix for "pulsing" input in games):
+        // put it down and leave it down. The host repeats the character itself, exactly as it does
+        // for a USB keyboard, so a held movement key keeps moving instead of stuttering.
+        // The later onKeyDown calls are byte-identical keep-alives, not extra keystrokes, so they
+        // are not logged - only the first press is.
+        onKeyDown = { key, isRepeat ->
             key.usage?.let { usage ->
-                scope.launch(keyDispatcher) { session.tapKey(key.keyCode, usage) }
+                scope.launch(keyDispatcher) { session.pressKey(key.keyCode, usage, log = !isRepeat) }
+            }
+        },
+        // The single release, when the finger lifts.
+        onKeyUp = { key ->
+            key.usage?.let { usage ->
+                scope.launch(keyDispatcher) { session.releaseKey(key.keyCode, usage) }
             }
         },
         // Physical-keyboard style by default (hold = active, lift = release);

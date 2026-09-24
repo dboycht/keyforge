@@ -40,6 +40,7 @@ import com.dboycht.keyforge.layout.KeySpec
 import com.dboycht.keyforge.layout.KeyboardLayout
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** Width of one key unit; the whole keyboard scales from this single number. */
@@ -88,6 +89,15 @@ private fun labelSizeFor(unit: Dp): TextUnit = (unit.value * 0.36f).coerceIn(9f,
 private const val HighlightTag = "KeyForgeHighlight"
 
 /**
+ * How often the hold-loop ticks while a key is held down.
+ *
+ * Short enough that the key's keep-alive (and, in the opt-in pulse mode, its repeat) lands close to
+ * on time, cheap enough not to matter: a tick with nothing due does no work and sends nothing, since
+ * [AutoRepeater] decides when something is actually owed to the host.
+ */
+private const val KEEP_ALIVE_TICK_MS = 25L
+
+/**
  * Diagnostics for the "key stays lit" investigation (ERROR.md E10).
  *
  * A missing gesture callback leaves no trace in normal logs, so the highlight state is
@@ -126,8 +136,18 @@ private fun traceKeyHighlightEnd(keyCode: Int) {
 internal fun KeyboardView(
     layout: KeyboardLayout,
     modifier: Modifier = Modifier,
+    /** One keystroke: down then up. Used by [RepeatMode.ONESHOT] keys. */
     onKeyTap: (KeySpec) -> Unit = {},
-    onKeyRepeat: (KeySpec) -> Unit = {},
+    /**
+     * Put a key down and leave it down (no release). Used at the start of a held key, and re-sent
+     * unchanged as a keep-alive so a dropped report cannot be read as a release.
+     *
+     * [isRepeat] is true for the keep-alive re-sends: the report is byte-identical to the first one,
+     * so the caller can skip logging them (a 50ms cadence would otherwise flood the event log).
+     */
+    onKeyDown: (KeySpec, Boolean) -> Unit = { _, _ -> },
+    /** Release a held key. Sent exactly once, when the finger lifts. */
+    onKeyUp: (KeySpec) -> Unit = {},
     /** True: modifiers latch (phone-keyboard style). False: physical-keyboard style. */
     modifierLatch: Boolean = false,
     onModifierChanged: (KeySpec, Boolean) -> Unit = { _, _ -> },
@@ -236,16 +256,41 @@ internal fun KeyboardView(
                                     }
                                 } else {
                                     pressed = pressed + key.keyCode
-                                    // Immediate first keystroke; the repeat loop (started
-                                    // here for repeatable keys) takes over if the finger stays.
-                                    onKeyTap(key)
-                                    if (key.supportsAutoRepeat) {
-                                        repeatJob?.cancel()
-                                        repeatJob = gestureScope.launch {
-                                            delay(KeySpec.AUTO_REPEAT_DELAY_MS)
-                                            while (true) {
-                                                onKeyRepeat(key)
-                                                delay(KeySpec.AUTO_REPEAT_INTERVAL_MS)
+                                    repeatJob?.cancel()
+                                    repeatJob = null
+
+                                    when (key.repeatMode) {
+                                        // One keystroke per touch. Used by keys where repeating is
+                                        // meaningless (and by any layout that opts out).
+                                        RepeatMode.ONESHOT -> onKeyTap(key)
+
+                                        // Physical-keyboard behaviour, and the fix for "held keys
+                                        // pulse in games": put the key **down and leave it down**.
+                                        // The host generates the repeat characters itself, exactly as
+                                        // it does for a USB keyboard - so a held movement key keeps
+                                        // the character moving instead of stuttering.
+                                        //
+                                        // The repeating reports at the keep-alive cadence are
+                                        // byte-identical to the first one, so the host sees "still
+                                        // held", never a release. The only release is on finger-lift.
+                                        RepeatMode.HOLD,
+                                        RepeatMode.PULSE,
+                                        -> {
+                                            val repeater = AutoRepeater(
+                                                schedule = if (key.repeatMode == RepeatMode.PULSE) {
+                                                    RepeatSchedule.pulse()
+                                                } else {
+                                                    RepeatSchedule.hold()
+                                                },
+                                                onDown = { isRepeat -> onKeyDown(key, isRepeat) },
+                                                onUp = { onKeyUp(key) },
+                                            )
+                                            repeater.press()
+                                            repeatJob = gestureScope.launch {
+                                                while (isActive) {
+                                                    delay(KEEP_ALIVE_TICK_MS)
+                                                    repeater.advance(KEEP_ALIVE_TICK_MS)
+                                                }
                                             }
                                         }
                                     }
@@ -255,10 +300,14 @@ internal fun KeyboardView(
                                 repeatJob?.cancel()
                                 repeatJob = null
                                 pressed = pressed - key.keyCode
-                                // Physical-keyboard modifier: releasing the finger releases
-                                // the modifier. In latch mode it stays until tapped again.
-                                if (isModifier && !modifierLatch) {
-                                    onModifierChanged(key, false)
+                                if (isModifier) {
+                                    // Physical-keyboard modifier: releasing the finger releases
+                                    // the modifier. In latch mode it stays until tapped again.
+                                    if (!modifierLatch) onModifierChanged(key, false)
+                                } else if (key.repeatMode != RepeatMode.ONESHOT) {
+                                    // The single release for a held key. A one-shot key already
+                                    // released itself in onKeyTap.
+                                    onKeyUp(key)
                                 }
                             },
                         )
