@@ -183,6 +183,7 @@ private fun KeyboardScreen(
     val textSender = remember(session) { TextSender(session) }
     val state by session.state.collectAsState()
     val modifierLatch by settings.modifierLatch.collectAsState()
+    val haptics by settings.haptics.collectAsState()
     val fullscreenEnabled by settings.fullscreen.collectAsState()
     // Which layout is on screen. A saved choice always wins; when the user has never chosen - or
     // chose a layout that a later version deleted - a narrow window gets the 12-unit phone layout
@@ -254,6 +255,7 @@ private fun KeyboardScreen(
                 scope = scope,
                 keyDispatcher = keyDispatcher,
                 modifierLatch = modifierLatch,
+                haptics = haptics,
                 settings = settings,
                 panel = panel,
                 onPanelChange = { panel = it },
@@ -301,6 +303,7 @@ private fun KeyboardScreen(
                 layout = layout,
                 lastResult = lastResult,
                 modifierLatch = modifierLatch,
+                haptics = haptics,
                 fullscreenEnabled = fullscreenEnabled,
                 settings = settings,
                 onLayoutPick = { switchLayout(it) },
@@ -341,6 +344,7 @@ private fun DiagnosticsPanel(
     layout: KeyboardLayout,
     lastResult: String?,
     modifierLatch: Boolean,
+    haptics: Boolean,
     fullscreenEnabled: Boolean,
     settings: KeyboardSettings,
     onLayoutPick: (KeyboardLayout) -> Unit,
@@ -376,7 +380,7 @@ private fun DiagnosticsPanel(
         LayoutPicker(current = layout, onPick = onLayoutPick)
 
         Spacer(Modifier.height(4.dp))
-        ModifierModeRow(
+        SettingsRows(
             latch = modifierLatch,
             onToggle = {
                 settings.setModifierLatch(it)
@@ -385,6 +389,8 @@ private fun DiagnosticsPanel(
             },
             fullscreen = fullscreenEnabled,
             onFullscreenToggle = { settings.setFullscreen(it) },
+            haptics = haptics,
+            onHapticsToggle = { settings.setHaptics(it) },
         )
 
         Spacer(Modifier.height(6.dp))
@@ -456,6 +462,7 @@ private fun KeyboardGrid(
     scope: CoroutineScope,
     keyDispatcher: CoroutineDispatcher,
     modifierLatch: Boolean,
+    haptics: Boolean,
     modifier: Modifier = Modifier,
 ) {
     KeyboardView(
@@ -486,6 +493,7 @@ private fun KeyboardGrid(
         // Physical-keyboard style by default (hold = active, lift = release);
         // the settings switch turns the phone-style latch back on.
         modifierLatch = modifierLatch,
+        haptics = haptics,
         onModifierChanged = { key, on ->
             key.usage?.let { usage ->
                 scope.launch(keyDispatcher) {
@@ -497,12 +505,20 @@ private fun KeyboardGrid(
     )
 }
 
+/**
+ * The keyboard's own settings rows: full screen, modifier mode, and key vibration.
+ *
+ * One composable for both places they appear (the settings page and the full screen panel), because
+ * two copies drift - the earlier "the full screen panel is missing a switch" class of bug.
+ */
 @Composable
-private fun ModifierModeRow(
+private fun SettingsRows(
     latch: Boolean,
     onToggle: (Boolean) -> Unit,
     fullscreen: Boolean,
     onFullscreenToggle: (Boolean) -> Unit,
+    haptics: Boolean,
+    onHapticsToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -535,6 +551,16 @@ private fun ModifierModeRow(
             },
             checked = latch,
             onCheckedChange = onToggle,
+        )
+        SettingRow(
+            label = stringResource(R.string.keyboard_haptics),
+            hint = if (haptics) {
+                "按下按键时手机轻震一下（跟随系统的触感设置）"
+            } else {
+                "已关闭：按键不震动"
+            },
+            checked = haptics,
+            onCheckedChange = onHapticsToggle,
         )
     }
 }
@@ -770,6 +796,7 @@ private fun FullscreenLayout(
     scope: CoroutineScope,
     keyDispatcher: CoroutineDispatcher,
     modifierLatch: Boolean,
+    haptics: Boolean,
     settings: KeyboardSettings,
     panel: FullscreenPanel,
     onPanelChange: (FullscreenPanel) -> Unit,
@@ -836,7 +863,7 @@ private fun FullscreenLayout(
                 title = stringResource(R.string.keyboard_panel_settings),
                 onClose = { onPanelChange(FullscreenPanel.NONE) },
             ) {
-                ModifierModeRow(
+                SettingsRows(
                     latch = modifierLatch,
                     onToggle = {
                         settings.setModifierLatch(it)
@@ -844,6 +871,8 @@ private fun FullscreenLayout(
                     },
                     fullscreen = true,
                     onFullscreenToggle = { onExitFullscreen() },
+                    haptics = haptics,
+                    onHapticsToggle = { settings.setHaptics(it) },
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -888,6 +917,7 @@ private fun FullscreenLayout(
                 scope = scope,
                 keyDispatcher = keyDispatcher,
                 modifierLatch = modifierLatch,
+                haptics = haptics,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),

@@ -31,7 +31,13 @@ internal class KeyboardSettings private constructor(context: Context) {
      */
     val modifierLatch: StateFlow<Boolean> = _modifierLatch.asStateFlow()
 
-    /** Reserved: whether to vibrate on key press. */
+    /**
+     * Whether pressing a key buzzes the phone (default on).
+     *
+     * Applied by [com.dboycht.keyforge.keyboard.KeyboardView] through
+     * `View.performHapticFeedback(VIRTUAL_KEY)`, so it also honours the system-wide touch-feedback
+     * setting: with that off, nothing buzzes no matter what this switch says.
+     */
     val haptics: StateFlow<Boolean> = _haptics.asStateFlow()
 
     /**

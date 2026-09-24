@@ -1,5 +1,6 @@
 package com.dboycht.keyforge.keyboard
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -29,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -179,6 +181,19 @@ internal fun KeyboardView(
     onKeyUp: (KeySpec) -> Unit = {},
     /** True: modifiers latch (phone-keyboard style). False: physical-keyboard style. */
     modifierLatch: Boolean = false,
+    /**
+     * Whether a key press makes the phone buzz.
+     *
+     * Off is a real choice, not a fallback: on a device held in two hands the keyboard is the only
+     * feedback surface there is, and some people find the buzzing tiring - so the setting is a
+     * switch next to the modifier mode, and the hint says which way it is set.
+     *
+     * The feedback goes through [android.view.View.performHapticFeedback] rather than a Compose
+     * haptic type so it lands on the same [android.view.HapticFeedbackConstants.VIRTUAL_KEY] path a
+     * system keyboard uses - including the user's system-wide "touch feedback" setting, which can
+     * switch it off entirely (then this switch does nothing, which is correct).
+     */
+    haptics: Boolean = true,
     onModifierChanged: (KeySpec, Boolean) -> Unit = { _, _ -> },
 ) {
     // Latched modifiers (tap once = on, tap again = off).
@@ -278,6 +293,7 @@ internal fun KeyboardView(
                             key = key,
                             lit = lit,
                             fingerDown = key.keyCode in pressed,
+                            haptics = haptics,
                             // Sized from the key's real WIDTH ([unitFromWidth]), never from `unit`.
                             labelSp = labelSizeFor(unitFromWidth, key.label, key.widthUnits),
                             // The shifted character is drawn smaller, and fitted to the key as well:
@@ -367,6 +383,8 @@ private fun RowScope.KeyBox(
     lit: Boolean,
     /** Finger currently down on this key (highlight for non-modifiers). */
     fingerDown: Boolean,
+    /** Whether pressing this key should buzz the phone. */
+    haptics: Boolean,
     /** Label size in sp, fitted to this key (see [labelSizeFor]). */
     labelSp: TextUnit,
     /** Size for the shifted character, or `null` when the key has none. */
@@ -374,6 +392,9 @@ private fun RowScope.KeyBox(
     onPressStart: () -> Unit,
     onPressEnd: () -> Unit,
 ) {
+    // Read before the spacer's early return: a composable must call its hooks unconditionally, and
+    // the spacer branch below returns early.
+    val view = LocalView.current
     val weight = key.widthUnits.coerceAtLeast(0.1f)
 
     // A spacer is width and nothing else: it holds the two halves of a split layout apart, so
@@ -412,6 +433,12 @@ private fun RowScope.KeyBox(
                         val down = awaitPointerEvent()
                         if (down.changes.none { it.pressed }) continue
 
+                        // The buzz happens on the press, once: the keep-alive re-sends that follow
+                        // a held key are not new presses and must not buzz again (a 50ms cadence of
+                        // vibration would be a bug, not feedback).
+                        if (haptics) {
+                            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                        }
                         onPressStart()
                         val pointerId = down.changes.first { it.pressed }.id
                         try {
