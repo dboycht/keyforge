@@ -18,7 +18,7 @@ android {
         // Single source of truth for the version: `versionName` below.
         // `versionCode` is only bumped on release.
         versionCode = 1
-        versionName = "1.0.4"
+        versionName = "1.0.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
