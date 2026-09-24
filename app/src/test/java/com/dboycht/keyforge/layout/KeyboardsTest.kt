@@ -68,6 +68,28 @@ class KeyboardsTest {
     }
 
     @Test
+    fun `a narrow key does not carry a long label`() {
+        // Device-measured (2026-09-24): on a 360dp-wide phone the one-unit keys of a 12-unit layout
+        // are about 28dp wide, and Compose CLIPS a label that overflows its box, silently - on the
+        // real screen "Shift" rendered as "Shi" and "Esc" as "Es" (font scale 1.0, so it was not the
+        // system font size). The renderer now fits every label to its own key
+        // (KeyboardView.labelSizeFor), so this guard is about *readability*: below five characters a
+        // fitted label still lands above ~8sp, which is why the narrow layouts use the shift glyph
+        // instead of the word.
+        layouts.forEach { layout ->
+            layout.allKeys
+                .filter { it.kind != KeyKind.SPACER && it.widthUnits < 1.25f }
+                .forEach { key ->
+                    assertTrue(
+                        "${layout.id}: '${key.label}' is ${key.label.length} characters on a " +
+                            "${key.widthUnits}-unit key",
+                        key.label.length <= 5,
+                    )
+                }
+        }
+    }
+
+    @Test
     fun `every text-capable layout carries the punctuation ordinary text needs`() {
         // Regression guard for the deleted `full` layout: it had no `-` and no `'`, so "e-mail"
         // and "don't" could not be typed. `?` comes from Shift on the `/` key.

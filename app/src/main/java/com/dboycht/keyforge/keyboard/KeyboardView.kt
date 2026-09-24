@@ -75,10 +75,39 @@ private val GridPadding = 2.dp
 private val RowGap = 2.dp
 
 /**
- * Label size for a key of [unit] size: scaled with the unit, so a shrunk grid stays
- * readable instead of keeping a fixed 14sp that would overflow a 24dp key.
+ * Average glyph advance of the keyboard's label font, in em.
+ *
+ * Used to decide whether a label fits its key. It is an estimate on purpose: measuring the real
+ * text needs a [androidx.compose.ui.text.TextMeasurer] per key, while the estimate only has to be
+ * good enough to stop the clipping described in [labelSizeFor].
  */
-private fun labelSizeFor(unit: Dp): TextUnit = (unit.value * 0.36f).coerceIn(9f, 17f).sp
+private const val AVERAGE_GLYPH_EM = 0.62f
+
+/** Never shrink a label below this, however narrow the key: below it the label is not readable. */
+private const val MIN_LABEL_SP = 8f
+
+/**
+ * Label size for one key, given the width of one key unit in dp ([keyUnitDp]).
+ *
+ * ⚠️ [keyUnitDp] must be the **width**-derived unit (`maxWidth / layout.widthUnits`), not the
+ * `unit` inside the grid: in a portrait window that one is raised by the available height and
+ * clamped to `MaxKeyUnit`, so it can be twice the real key width. Sizing labels from it is what made
+ * `Esc` render as "Es" and `Shift` as "Shi" on the device (font scale 1.0, so it was not the system
+ * font size) - Compose clips an overflowing label silently, so neither the app nor a screenshot at
+ * normal size shows it; it took a pixel-level crop of a device screenshot.
+ *
+ * Two bounds are applied: the unit-scaled size (so a whole grid scales together) and the key's own
+ * inner width divided by the estimated glyph run. The layout-data test (`KeyboardsTest`) refuses a
+ * long label on a narrow key, so this stays a safety net rather than the only defence.
+ */
+private fun labelSizeFor(keyUnitDp: Dp, label: String, widthUnits: Float, scale: Float = 1f): TextUnit {
+    val byUnit = (keyUnitDp.value * 0.36f).coerceIn(9f, 17f) * scale
+    // The key's inner width: its share of the row minus the gap that sits next to it and a hair of
+    // padding, so the glyphs never touch the rounded corners.
+    val boxDp = keyUnitDp.value * widthUnits - RowGap.value - 2f
+    val byWidth = boxDp / (AVERAGE_GLYPH_EM * label.length.coerceAtLeast(1))
+    return minOf(byUnit, byWidth).coerceAtLeast(MIN_LABEL_SP).sp
+}
 
 /**
  * Auto-repeat is configured per key by [KeySpec.supportsAutoRepeat]; the timing lives
@@ -193,6 +222,13 @@ internal fun KeyboardView(
         // A portrait phone has far more height than a keyboard needs, so the width alone would
         // leave most of the screen empty and the keys small. Letting the height raise the unit
         // (up to MaxKeyUnit) spreads the keys out to fill the space instead.
+        //
+        // ⚠️ `unit` is therefore NOT the width of a key. Keys get their width from the Row weights
+        // (`maxWidth / layout.widthUnits`, i.e. [unitFromWidth]); only their HEIGHT follows `unit`.
+        // Anything that has to fit inside a key - above all its label - must use [unitFromWidth],
+        // which is what [labelSizeFor] is given below. Sizing labels from `unit` was the "Esc renders
+        // as Es" bug: in portrait `unit` clamps to MaxKeyUnit (64dp) while the key is ~30dp wide, so
+        // the label came out at 17sp and Compose clipped it without a word.
         val unit = minOf(maxOf(unitFromWidth, unitFromHeight), MaxKeyUnit)
             .coerceAtLeast(MinKeyUnit)
 
@@ -242,7 +278,13 @@ internal fun KeyboardView(
                             key = key,
                             lit = lit,
                             fingerDown = key.keyCode in pressed,
-                            labelSp = labelSizeFor(unit),
+                            // Sized from the key's real WIDTH ([unitFromWidth]), never from `unit`.
+                            labelSp = labelSizeFor(unitFromWidth, key.label, key.widthUnits),
+                            // The shifted character is drawn smaller, and fitted to the key as well:
+                            // on a one-unit key it is the only label that may not fit otherwise.
+                            shiftLabelSp = key.shiftLabel?.let { shift ->
+                                labelSizeFor(unitFromWidth, shift, key.widthUnits, scale = 0.68f)
+                            },
                             onPressStart = {
                                 if (isModifier) {
                                     pressed = pressed + key.keyCode
@@ -325,8 +367,10 @@ private fun RowScope.KeyBox(
     lit: Boolean,
     /** Finger currently down on this key (highlight for non-modifiers). */
     fingerDown: Boolean,
-    /** Label size in sp, scaled with the key unit so small grids stay readable. */
+    /** Label size in sp, fitted to this key (see [labelSizeFor]). */
     labelSp: TextUnit,
+    /** Size for the shifted character, or `null` when the key has none. */
+    shiftLabelSp: TextUnit?,
     onPressStart: () -> Unit,
     onPressEnd: () -> Unit,
 ) {
@@ -400,7 +444,9 @@ private fun RowScope.KeyBox(
                 Text(
                     text = shift,
                     color = textColor.copy(alpha = 0.6f),
-                    fontSize = labelSp * 0.68f,
+                    fontSize = shiftLabelSp ?: labelSp * 0.68f,
+                    fontWeight = FontWeight.Medium,
+                    textAlign = TextAlign.Center,
                     maxLines = 1,
                 )
             }

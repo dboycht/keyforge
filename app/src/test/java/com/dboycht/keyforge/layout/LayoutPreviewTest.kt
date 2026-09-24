@@ -164,9 +164,16 @@ class LayoutPreviewTest {
         return sb.toString()
     }
 
-    /** Largest font size (down to [minSize]) whose text still fits [maxWidth] (0.6em per char). */
-    private fun fittedSize(text: String, maxWidth: Int, maxSize: Int, minSize: Int = 6): Int {
-        val byWidth = (maxWidth / (0.6f * text.length.coerceAtLeast(1))).toInt()
+    /**
+     * Largest font size whose text still fits [maxWidth], never below 8.
+     *
+     * Deliberately the same rule the app uses (`KeyboardView.labelSizeFor`: 0.62 em per glyph, 8sp
+     * floor). The first version of this preview invented its own rule and shrank a one-unit `Shift`
+     * to 8px, which *looked* like a broken layout; a preview that disagrees with the renderer sends
+     * the reader after the wrong bug (ERROR.md E20 §preview).
+     */
+    private fun fittedSize(text: String, maxWidth: Int, maxSize: Int, minSize: Int = 8): Int {
+        val byWidth = (maxWidth / (0.62f * text.length.coerceAtLeast(1))).toInt()
         return byWidth.coerceIn(minSize, maxSize)
     }
 

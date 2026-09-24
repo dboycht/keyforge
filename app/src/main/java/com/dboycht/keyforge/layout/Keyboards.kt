@@ -96,21 +96,25 @@ internal object Keyboards {
         id = "pc60",
         displayName = "电脑全键盘",
         rows = listOf(
-            // Esc(1) + `(1) + 1..0(10) + -(1) + =(1) + Bksp(1) = 15 exactly.
+            // Esc(1) + `(1) + 1..0(10) + -(1) + =(1) + \(1) = 15 exactly.
+            //
+            // The backslash sits here and Backspace sits at the end of the letter row below: the two
+            // were swapped at the user's request (2026-09-24), which also gives Backspace the wider
+            // key of the pair - it is pressed constantly, `\` almost never.
             listOf(ESC, key("`", KeyEvent.KEYCODE_GRAVE, shiftLabel = "~")) +
                 DIGITS +
                 listOf(
                     key("-", KeyEvent.KEYCODE_MINUS, shiftLabel = "_"),
                     key("=", KeyEvent.KEYCODE_EQUALS, shiftLabel = "+"),
-                    BACKSPACE,
+                    key("\\", KeyEvent.KEYCODE_BACKSLASH, shiftLabel = "|"),
                 ),
-            // Tab(1.5) + q..p(10) + [(1) + ](1) + \(1.5) = 15.
+            // Tab(1.5) + q..p(10) + [(1) + ](1) + Bksp(1.5) = 15.
             listOf(action("Tab", KeyEvent.KEYCODE_TAB, widthUnits = 1.5f)) +
                 letterKeys("qwertyuiop", upperCase = true) +
                 listOf(
                     key("[", KeyEvent.KEYCODE_LEFT_BRACKET, shiftLabel = "{"),
                     key("]", KeyEvent.KEYCODE_RIGHT_BRACKET, shiftLabel = "}"),
-                    key("\\", KeyEvent.KEYCODE_BACKSLASH, widthUnits = 1.5f, shiftLabel = "|"),
+                    action("Bksp", KeyEvent.KEYCODE_DEL, widthUnits = 1.5f),
                 ),
             // Caps(1.75) + a..l(9) + ;(1) + '(1) + Enter(2.25) = 15.
             listOf(action("Caps", KeyEvent.KEYCODE_CAPS_LOCK, widthUnits = 1.75f)) +
@@ -177,13 +181,16 @@ internal object Keyboards {
                 listOf(action("Enter", KeyEvent.KEYCODE_ENTER, widthUnits = 2f)),
             // Shift(1) + z..m(7) + ,(1) + .(1) + /(1) + Shift(1) = 12.
             // Two one-unit shifts, one at each bottom corner, so either thumb can capitalise.
-            listOf(modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT)) +
+            // They carry the glyph rather than the word: "Shift" is five characters on a one-unit
+            // key, and on the device that rendered as "Shi" (Compose clipped the rest - see
+            // KeyboardView.labelSizeFor). Every phone keyboard uses the same glyph.
+            listOf(modifier("⇧", KeyEvent.KEYCODE_SHIFT_LEFT)) +
                 letterKeys("zxcvbnm") +
                 listOf(
                     key(",", KeyEvent.KEYCODE_COMMA, shiftLabel = "<"),
                     key(".", KeyEvent.KEYCODE_PERIOD, shiftLabel = ">"),
                     key("/", KeyEvent.KEYCODE_SLASH, shiftLabel = "?"),
-                    modifier("Shift", KeyEvent.KEYCODE_SHIFT_RIGHT),
+                    modifier("⇧", KeyEvent.KEYCODE_SHIFT_RIGHT),
                 ),
             // Ctrl(1.25) + Alt(1) + -(1) + Space(3.5) + Alt(1) + Ctrl(1.25) + ←(1) + ↓(1) + →(1) = 12.
             // The hyphen lives here because it is one of the six punctuation marks ordinary text
@@ -243,14 +250,15 @@ internal object Keyboards {
                     action("Enter", KeyEvent.KEYCODE_ENTER),
                 ),
             // Shift(1) + z..b(5) = 6 | n..m(2) + ,(1) + .(1) + /(1) + Shift(1) = 6.
-            listOf(modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT)) +
+            // Glyph labels for the same reason as [PHONE_12]: five characters do not fit one unit.
+            listOf(modifier("⇧", KeyEvent.KEYCODE_SHIFT_LEFT)) +
                 letterKeys("zxcvb") + listOf(spacer()) +
                 letterKeys("nm") +
                 listOf(
                     key(",", KeyEvent.KEYCODE_COMMA, shiftLabel = "<"),
                     key(".", KeyEvent.KEYCODE_PERIOD, shiftLabel = ">"),
                     key("/", KeyEvent.KEYCODE_SLASH, shiftLabel = "?"),
-                    modifier("Shift", KeyEvent.KEYCODE_SHIFT_RIGHT),
+                    modifier("⇧", KeyEvent.KEYCODE_SHIFT_RIGHT),
                 ),
             // Ctrl(1.25) + Alt(1) + Space(3.75) = 6 | Space(3.75) + Alt(1) + Ctrl(1.25) = 6.
             // Two space bars, mirrored: with the hands apart, either thumb gets its own.
