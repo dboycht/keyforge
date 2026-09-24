@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -194,6 +196,14 @@ internal fun KeyboardView(
      * switch it off entirely (then this switch does nothing, which is correct).
      */
     haptics: Boolean = true,
+    /**
+     * Whether a key press clicks (see [KeyClickPlayer]: the system click when the system allows one,
+     * our own short tick otherwise). The player is created lazily, so a user who keeps sound off
+     * never starts an audio engine.
+     */
+    sound: Boolean = true,
+    /** The colours to draw the keyboard with; see [KeyboardThemes]. */
+    palette: KeyboardPalette = KeyboardThemes.default,
     onModifierChanged: (KeySpec, Boolean) -> Unit = { _, _ -> },
 ) {
     // Latched modifiers (tap once = on, tap again = off).
@@ -204,6 +214,13 @@ internal fun KeyboardView(
     // reports press/release and never has to manage coroutines.
     val gestureScope = rememberCoroutineScope()
     var repeatJob by remember(layout.id) { mutableStateOf<Job?>(null) }
+
+    // The click. Created once per screen and released with it; the audio engine inside is loaded
+    // lazily on the first click the user actually hears. The context is read *outside* the `remember`
+    // block: a composition local cannot be read from a non-composable lambda.
+    val context = LocalContext.current
+    val clickPlayer = remember { KeyClickPlayer(context) }
+    DisposableEffect(clickPlayer) { onDispose { clickPlayer.release() } }
 
     // Probe for the "key stays lit" bug (ERROR.md E10): the failure is a MISSING
     // callback, so nothing is logged by default. This records the pressed-set value
@@ -294,6 +311,8 @@ internal fun KeyboardView(
                             lit = lit,
                             fingerDown = key.keyCode in pressed,
                             haptics = haptics,
+                            onClickSound = if (sound) clickPlayer::play else null,
+                            palette = palette,
                             // Sized from the key's real WIDTH ([unitFromWidth]), never from `unit`.
                             labelSp = labelSizeFor(unitFromWidth, key.label, key.widthUnits),
                             // The shifted character is drawn smaller, and fitted to the key as well:
@@ -385,6 +404,10 @@ private fun RowScope.KeyBox(
     fingerDown: Boolean,
     /** Whether pressing this key should buzz the phone. */
     haptics: Boolean,
+    /** Plays the key click, or `null` when the user has switched sound off. */
+    onClickSound: (() -> Unit)?,
+    /** The colours to draw this key with. */
+    palette: KeyboardPalette,
     /** Label size in sp, fitted to this key (see [labelSizeFor]). */
     labelSp: TextUnit,
     /** Size for the shifted character, or `null` when the key has none. */
@@ -406,13 +429,11 @@ private fun RowScope.KeyBox(
 
     val pressed = if (key.isModifier) lit else fingerDown
 
-    val background = when {
-        pressed -> MaterialTheme.colorScheme.primary
-        key.kind == KeyKind.MODIFIER -> Color(0xFF3A3A3C)
-        key.kind == KeyKind.ACTION -> Color(0xFF2C2C2E)
-        else -> MaterialTheme.colorScheme.surfaceVariant
-    }
-    val textColor = if (pressed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+    // Colours come from the user's palette, not from the Material theme: the keyboard is its own
+    // surface, and the same palette has to work on a dark or a light scheme (the palettes are
+    // contrast-tested in KeyboardPaletteTest).
+    val background = if (pressed) palette.pressedFill else palette.fillFor(key.kind)
+    val textColor = if (pressed) palette.pressedText else palette.textFor(key.kind)
 
     Box(
         modifier = Modifier
@@ -433,12 +454,13 @@ private fun RowScope.KeyBox(
                         val down = awaitPointerEvent()
                         if (down.changes.none { it.pressed }) continue
 
-                        // The buzz happens on the press, once: the keep-alive re-sends that follow
-                        // a held key are not new presses and must not buzz again (a 50ms cadence of
-                        // vibration would be a bug, not feedback).
+                        // The buzz and the click happen on the press, once each: the keep-alive
+                        // re-sends that follow a held key are not new presses and must not repeat
+                        // them (a 50ms cadence of vibration and clicks would be a bug, not feedback).
                         if (haptics) {
                             view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
                         }
+                        onClickSound?.invoke()
                         onPressStart()
                         val pointerId = down.changes.first { it.pressed }.id
                         try {

@@ -21,6 +21,8 @@
     <string name="keyboard_section_settings">键盘</string>
     <string name="keyboard_modifier_latch">Shift/Ctrl 点一下保持</string>
     <string name="keyboard_haptics">按键震动</string>
+    <string name="keyboard_sound">按键音</string>
+    <string name="keyboard_theme">配色</string>
     <string name="keyboard_fullscreen">全屏键盘</string>
     <string name="keyboard_fullscreen_hint">打开后隐藏系统栏、键盘占满屏幕；键盘只在全屏下显示</string>
     <string name="keyboard_exit_fullscreen">退出全屏</string>
@@ -28,6 +30,7 @@
     <string name="keyboard_panel_settings">设置</string>
     <string name="keyboard_panel_close">收起</string>
     <string name="keyboard_action_choose_layout">选择布局</string>
+    <string name="keyboard_action_choose_theme">选择键盘配色</string>
     <string name="keyboard_layout_size">%1$.0f 格宽 · %2$d 行</string>
 
     <!-- Text forwarding (type with your own keyboard, characters go to the host) -->

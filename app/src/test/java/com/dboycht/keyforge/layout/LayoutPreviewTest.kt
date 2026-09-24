@@ -1,5 +1,9 @@
 package com.dboycht.keyforge.layout
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import com.dboycht.keyforge.keyboard.KeyboardPalette
+import com.dboycht.keyforge.keyboard.KeyboardThemes
 import java.io.File
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -34,16 +38,6 @@ class LayoutPreviewTest {
     /** The app's own label rule (`KeyboardView.labelSizeFor`): 0.36 of the key unit, 9..17sp. */
     private val appLabelSize = (unit * 0.36f).coerceIn(9f, 17f).toInt()
 
-    private val background = "#121216"
-    private val gapTint = "#1E1E26"
-    private val normalFill = "#E8E4EC"
-    private val normalText = "#1A1A1E"
-    private val modifierFill = "#4A4A54"
-    private val modifierText = "#F2F2F7"
-    private val actionFill = "#2E2E36"
-    private val actionText = "#EDEDF2"
-    private val headerText = "#C8C8D4"
-
     @Test
     fun `renders every layout to an svg preview`() {
         val dir = File("build/layout-preview")
@@ -51,7 +45,15 @@ class LayoutPreviewTest {
 
         Keyboards.all.forEach { layout ->
             val file = File(dir, "${layout.id}.svg")
-            file.writeText(svg(layout), Charsets.UTF_8)
+            file.writeText(svg(layout, KeyboardThemes.default), Charsets.UTF_8)
+            assertTrue("${file.name} was not written", file.length() > 0L)
+        }
+
+        // One extra picture per palette, on the same layout, so a colour scheme can be judged the
+        // same way a layout is - by looking at it - without involving the phone.
+        KeyboardThemes.all.forEach { palette ->
+            val file = File(dir, "theme-${palette.id}.svg")
+            file.writeText(svg(Keyboards.PC_60, palette), Charsets.UTF_8)
             assertTrue("${file.name} was not written", file.length() > 0L)
         }
 
@@ -62,7 +64,7 @@ class LayoutPreviewTest {
         println("layout previews written to ${dir.absoluteFile}")
     }
 
-    private fun svg(layout: KeyboardLayout): String {
+    private fun svg(layout: KeyboardLayout, palette: KeyboardPalette): String {
         val rows = layout.rows.size
         val keyboardWidth = (layout.widthUnits * unit).toInt() + padding * 2
         // Two header lines, and the canvas is widened if a line needs more room than the keys do:
@@ -77,14 +79,15 @@ class LayoutPreviewTest {
             """<svg xmlns="http://www.w3.org/2000/svg" width="$width" height="$height" """ +
                 """viewBox="0 0 $width $height" font-family="Segoe UI, Arial, sans-serif">""",
         )
-        sb.append("""<rect width="$width" height="$height" fill="$background"/>""")
+        sb.append("""<rect width="$width" height="$height" fill="${hex(palette.background)}"/>""")
         sb.append(
             text(
                 x = padding,
                 y = padding + 13,
                 content = titleLine,
                 size = 12,
-                color = headerText,
+                // The palette's own key ink, so the title stays readable on a light palette too.
+                color = hex(palette.keyText),
                 anchor = "start",
                 weight = "bold",
             ),
@@ -95,7 +98,7 @@ class LayoutPreviewTest {
                 y = padding + 27,
                 content = sizeLine,
                 size = 11,
-                color = headerText,
+                color = hex(palette.keyText),
                 anchor = "start",
             ),
         )
@@ -108,20 +111,16 @@ class LayoutPreviewTest {
                 val boxWidth = rawWidth - 2
                 when (key.kind) {
                     // The gap of a split layout: drawn as a faint band so the two halves are visible
-                    // here, even though the real keyboard draws nothing at all.
+                    // here, even though the real keyboard draws nothing at all. Tinted from the
+                    // palette so it is visible on a light scheme as well as a dark one.
                     KeyKind.SPACER ->
-                        sb.append("""<rect x="$x" y="$y" width="$boxWidth" height="$rowHeight" rx="5" fill="$gapTint"/>""")
+                        sb.append(
+                            """<rect x="$x" y="$y" width="$boxWidth" height="$rowHeight" rx="5" """ +
+                                """fill="${hex(palette.modifierFill)}" fill-opacity="0.35"/>""",
+                        )
                     else -> {
-                        val fill = when (key.kind) {
-                            KeyKind.MODIFIER -> modifierFill
-                            KeyKind.ACTION -> actionFill
-                            else -> normalFill
-                        }
-                        val ink = when (key.kind) {
-                            KeyKind.MODIFIER -> modifierText
-                            KeyKind.ACTION -> actionText
-                            else -> normalText
-                        }
+                        val fill = hex(palette.fillFor(key.kind))
+                        val ink = hex(palette.textFor(key.kind))
                         sb.append("""<rect x="$x" y="$y" width="$boxWidth" height="$rowHeight" rx="5" fill="$fill"/>""")
                         val center = x + boxWidth / 2
                         val shift = key.shiftLabel
@@ -202,17 +201,25 @@ class LayoutPreviewTest {
         .replace(">", "&gt;")
         .replace("\"", "&quot;")
 
+    /** `#RRGGBB` for a Compose colour. `toArgb` drops any alpha, which these palettes do not use. */
+    private fun hex(color: Color): String = "#%06X".format(color.toArgb() and 0xFFFFFF)
+
     private fun indexHtml(): String {
         val items = Keyboards.all.joinToString("\n") { layout ->
             """  <section><h2>${escape(layout.id)} · ${escape(layout.displayName)}</h2>""" + "\n" +
                 """    <img src="${layout.id}.svg" alt="${escape(layout.id)}"></section>"""
+        }
+        val themeItems = KeyboardThemes.all.joinToString("\n") { palette ->
+            """  <section><h2>配色 · ${escape(palette.displayName)} (${escape(palette.id)})""" +
+                """ —— 以「电脑全键盘」为例</h2>""" + "\n" +
+                """    <img src="theme-${palette.id}.svg" alt="${escape(palette.id)}"></section>"""
         }
         return """
             |<!doctype html>
             |<html lang="zh">
             |<head>
             |  <meta charset="utf-8">
-            |  <title>keyforge 布局预览</title>
+            |  <title>keyforge 布局与配色预览</title>
             |  <style>
             |    body { background: #0D0D10; color: #E8E4EC; font-family: "Segoe UI", Arial, sans-serif; margin: 24px; }
             |    h1 { font-size: 18px; }
@@ -221,8 +228,9 @@ class LayoutPreviewTest {
             |  </style>
             |</head>
             |<body>
-            |  <h1>keyforge 布局预览（由 layout/Keyboards.kt 的布局数据生成，改数据即改图）</h1>
+            |  <h1>keyforge 预览（全部由 layout/Keyboards.kt 与 keyboard/KeyboardPalette.kt 的数据生成，改数据即改图）</h1>
             |$items
+            |$themeItems
             |</body>
             |</html>
             |""".trimMargin()

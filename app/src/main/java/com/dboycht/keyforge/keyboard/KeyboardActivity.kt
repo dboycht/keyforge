@@ -184,6 +184,11 @@ private fun KeyboardScreen(
     val state by session.state.collectAsState()
     val modifierLatch by settings.modifierLatch.collectAsState()
     val haptics by settings.haptics.collectAsState()
+    val sound by settings.sound.collectAsState()
+    val themeId by settings.themeId.collectAsState()
+    // A stale id (a palette removed in a later version) degrades to the default rather than to a
+    // keyboard with no colours.
+    val palette = KeyboardThemes.byId(themeId)
     val fullscreenEnabled by settings.fullscreen.collectAsState()
     // Which layout is on screen. A saved choice always wins; when the user has never chosen - or
     // chose a layout that a later version deleted - a narrow window gets the 12-unit phone layout
@@ -256,6 +261,8 @@ private fun KeyboardScreen(
                 keyDispatcher = keyDispatcher,
                 modifierLatch = modifierLatch,
                 haptics = haptics,
+                sound = sound,
+                palette = palette,
                 settings = settings,
                 panel = panel,
                 onPanelChange = { panel = it },
@@ -304,6 +311,8 @@ private fun KeyboardScreen(
                 lastResult = lastResult,
                 modifierLatch = modifierLatch,
                 haptics = haptics,
+                sound = sound,
+                palette = palette,
                 fullscreenEnabled = fullscreenEnabled,
                 settings = settings,
                 onLayoutPick = { switchLayout(it) },
@@ -345,6 +354,8 @@ private fun DiagnosticsPanel(
     lastResult: String?,
     modifierLatch: Boolean,
     haptics: Boolean,
+    sound: Boolean,
+    palette: KeyboardPalette,
     fullscreenEnabled: Boolean,
     settings: KeyboardSettings,
     onLayoutPick: (KeyboardLayout) -> Unit,
@@ -391,6 +402,10 @@ private fun DiagnosticsPanel(
             onFullscreenToggle = { settings.setFullscreen(it) },
             haptics = haptics,
             onHapticsToggle = { settings.setHaptics(it) },
+            sound = sound,
+            onSoundToggle = { settings.setSound(it) },
+            palette = palette,
+            onThemePick = { settings.setThemeId(it.id) },
         )
 
         Spacer(Modifier.height(6.dp))
@@ -463,6 +478,8 @@ private fun KeyboardGrid(
     keyDispatcher: CoroutineDispatcher,
     modifierLatch: Boolean,
     haptics: Boolean,
+    sound: Boolean,
+    palette: KeyboardPalette,
     modifier: Modifier = Modifier,
 ) {
     KeyboardView(
@@ -494,6 +511,8 @@ private fun KeyboardGrid(
         // the settings switch turns the phone-style latch back on.
         modifierLatch = modifierLatch,
         haptics = haptics,
+        sound = sound,
+        palette = palette,
         onModifierChanged = { key, on ->
             key.usage?.let { usage ->
                 scope.launch(keyDispatcher) {
@@ -519,6 +538,10 @@ private fun SettingsRows(
     onFullscreenToggle: (Boolean) -> Unit,
     haptics: Boolean,
     onHapticsToggle: (Boolean) -> Unit,
+    sound: Boolean,
+    onSoundToggle: (Boolean) -> Unit,
+    palette: KeyboardPalette,
+    onThemePick: (KeyboardPalette) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -562,6 +585,125 @@ private fun SettingsRows(
             checked = haptics,
             onCheckedChange = onHapticsToggle,
         )
+        SettingRow(
+            label = stringResource(R.string.keyboard_sound),
+            hint = if (sound) {
+                "按下按键响一声（系统允许触摸提示音时用系统音，否则用应用自带短音）"
+            } else {
+                "已关闭：按键不发声"
+            },
+            checked = sound,
+            onCheckedChange = onSoundToggle,
+        )
+        ThemePickerRow(current = palette, onPick = onThemePick)
+    }
+}
+
+/**
+ * Colour-palette picker: the current name on a button, opening a short list with a swatch per palette.
+ *
+ * A swatch is worth the four little boxes it costs: the names alone ("午夜蓝") do not tell the user
+ * what the *keys* will look like pressed, which is the one thing that differs most between palettes.
+ */
+@Composable
+private fun ThemePickerRow(current: KeyboardPalette, onPick: (KeyboardPalette) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(text = stringResource(R.string.keyboard_theme), style = MaterialTheme.typography.bodyMedium)
+            OutlinedButton(
+                onClick = { open = true },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                modifier = Modifier.height(30.dp),
+            ) {
+                Text(current.displayName, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Text(
+            text = "只改键盘本身的颜色，设置页仍是系统深色",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text(stringResource(R.string.keyboard_action_choose_theme)) },
+            text = {
+                Column {
+                    KeyboardThemes.all.forEach { candidate ->
+                        val selected = candidate.id == current.id
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ThemeSwatch(candidate)
+                            Text(
+                                text = candidate.displayName,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (selected) PassGreen else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (selected) {
+                                Text(
+                                    text = stringResource(R.string.keyboard_chooser_connected),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = PassGreen,
+                                )
+                            } else {
+                                Button(
+                                    onClick = {
+                                        open = false
+                                        onPick(candidate)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                    modifier = Modifier.height(28.dp),
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.keyboard_chooser_connect),
+                                        style = MaterialTheme.typography.bodySmall,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { open = false }) {
+                    Text(stringResource(R.string.keyboard_chooser_close))
+                }
+            },
+        )
+    }
+}
+
+/** A palette in miniature: its background, the three key families, and the pressed colour. */
+@Composable
+private fun ThemeSwatch(palette: KeyboardPalette) {
+    Row(
+        modifier = Modifier
+            .background(palette.background, RoundedCornerShape(4.dp))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        listOf(palette.keyFill, palette.modifierFill, palette.actionFill, palette.pressedFill).forEach { color ->
+            Box(
+                modifier = Modifier
+                    .width(10.dp)
+                    .height(16.dp)
+                    .background(color, RoundedCornerShape(2.dp)),
+            )
+        }
     }
 }
 
@@ -797,6 +939,8 @@ private fun FullscreenLayout(
     keyDispatcher: CoroutineDispatcher,
     modifierLatch: Boolean,
     haptics: Boolean,
+    sound: Boolean,
+    palette: KeyboardPalette,
     settings: KeyboardSettings,
     panel: FullscreenPanel,
     onPanelChange: (FullscreenPanel) -> Unit,
@@ -820,7 +964,9 @@ private fun FullscreenLayout(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            // The backdrop follows the palette: keys in a light scheme sitting on the Material dark
+            // background would read as a rendering bug, not as a theme.
+            .background(palette.background),
     ) {
         FullscreenBar(
             state = state,
@@ -873,6 +1019,10 @@ private fun FullscreenLayout(
                     onFullscreenToggle = { onExitFullscreen() },
                     haptics = haptics,
                     onHapticsToggle = { settings.setHaptics(it) },
+                    sound = sound,
+                    onSoundToggle = { settings.setSound(it) },
+                    palette = palette,
+                    onThemePick = { settings.setThemeId(it.id) },
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -918,6 +1068,8 @@ private fun FullscreenLayout(
                 keyDispatcher = keyDispatcher,
                 modifierLatch = modifierLatch,
                 haptics = haptics,
+                sound = sound,
+                palette = palette,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),

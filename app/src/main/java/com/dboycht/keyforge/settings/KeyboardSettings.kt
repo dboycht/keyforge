@@ -21,8 +21,10 @@ internal class KeyboardSettings private constructor(context: Context) {
 
     private val _modifierLatch = MutableStateFlow(prefs.getBoolean(KEY_MODIFIER_LATCH, false))
     private val _haptics = MutableStateFlow(prefs.getBoolean(KEY_HAPTICS, true))
+    private val _sound = MutableStateFlow(prefs.getBoolean(KEY_SOUND, true))
     private val _fullscreen = MutableStateFlow(prefs.getBoolean(KEY_FULLSCREEN, false))
     private val _layoutId = MutableStateFlow(prefs.getString(KEY_LAYOUT_ID, null))
+    private val _themeId = MutableStateFlow(prefs.getString(KEY_THEME_ID, null))
 
     /**
      * When true, Shift/Ctrl/Alt/Win behave like phone-keyboard toggles (tap to latch,
@@ -41,6 +43,15 @@ internal class KeyboardSettings private constructor(context: Context) {
     val haptics: StateFlow<Boolean> = _haptics.asStateFlow()
 
     /**
+     * Whether pressing a key clicks (default on).
+     *
+     * Applied by [com.dboycht.keyforge.keyboard.KeyClickPlayer], which uses the system touch sound
+     * when the system allows one and a short built-in click otherwise - so this switch always has an
+     * audible effect, unlike one wired only to the system sound.
+     */
+    val sound: StateFlow<Boolean> = _sound.asStateFlow()
+
+    /**
      * "Full screen keyboard": the app hides the system bars so the keyboard owns the
      * screen. Remembered, because a mode that forgets itself reads as a bug.
      */
@@ -52,6 +63,13 @@ internal class KeyboardSettings private constructor(context: Context) {
      */
     val layoutId: StateFlow<String?> = _layoutId.asStateFlow()
 
+    /**
+     * Id of the keyboard colour palette to use, or `null` when the user has never chosen one (the
+     * caller then applies the default). Same contract as [layoutId]: a saved choice wins, a missing or
+     * stale one degrades to the default instead of showing an empty keyboard.
+     */
+    val themeId: StateFlow<String?> = _themeId.asStateFlow()
+
     fun setModifierLatch(enabled: Boolean) {
         prefs.edit { putBoolean(KEY_MODIFIER_LATCH, enabled) }
         _modifierLatch.value = enabled
@@ -60,6 +78,11 @@ internal class KeyboardSettings private constructor(context: Context) {
     fun setHaptics(enabled: Boolean) {
         prefs.edit { putBoolean(KEY_HAPTICS, enabled) }
         _haptics.value = enabled
+    }
+
+    fun setSound(enabled: Boolean) {
+        prefs.edit { putBoolean(KEY_SOUND, enabled) }
+        _sound.value = enabled
     }
 
     fun setFullscreen(enabled: Boolean) {
@@ -72,12 +95,19 @@ internal class KeyboardSettings private constructor(context: Context) {
         _layoutId.value = id
     }
 
+    fun setThemeId(id: String?) {
+        prefs.edit { putString(KEY_THEME_ID, id) }
+        _themeId.value = id
+    }
+
     companion object {
         private const val PREFS_NAME = "keyforge.settings"
         private const val KEY_MODIFIER_LATCH = "modifier_latch"
         private const val KEY_HAPTICS = "haptics"
+        private const val KEY_SOUND = "sound"
         private const val KEY_FULLSCREEN = "fullscreen"
         private const val KEY_LAYOUT_ID = "layout_id"
+        private const val KEY_THEME_ID = "theme_id"
 
         @Volatile
         private var instance: KeyboardSettings? = null
