@@ -103,6 +103,17 @@ internal data class KeyboardLayout(
      * are grids, like the 60% keyboard.
      */
     val rowOffsets: List<Float> = emptyList(),
+    /**
+     * Whether this layout is meant for typing ordinary text, i.e. it carries the whole alphabet,
+     * all ten digits and the editing keys.
+     *
+     * Most layouts do, and [Keyboards]' tests enforce exactly that - the deleted `split` layout
+     * silently lacked l, o and p, which no structural test noticed because they all asked about a
+     * short list of "essential" keys. A layout that is deliberately *not* a typing surface (the
+     * game pad) says so here instead of being silently exempt, so the exemption is visible in the
+     * data and in review, and anything that advertises itself as a keyboard is held to the standard.
+     */
+    val textCapable: Boolean = true,
 ) {
     val allKeys: List<KeySpec> get() = rows.flatten()
 
@@ -142,7 +153,7 @@ internal data class KeyboardLayout(
         // Every row must be the same total width **including its indent**, otherwise the renderer
         // squeezes the wider rows and the keys change size from row to row. This check has caught
         // real mistakes three times while layouts were being written (in the phone, staggered and
-        // split layouts), so it earns its keep even with only three layouts shipping.
+        // split layouts), so it earns its keep even with only four layouts shipping.
         val widths = rows.indices.map { index ->
             offsetFor(index) + rows[index].sumOf { it.widthUnits.toDouble() }
         }

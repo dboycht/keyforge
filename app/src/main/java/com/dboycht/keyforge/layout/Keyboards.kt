@@ -5,17 +5,36 @@ import android.view.KeyEvent
 /**
  * The shipped layouts.
  *
- * Three shapes, one renderer:
- * - [PC_60]: a 60% layout expressed the way its spec reads (15 key units wide, Esc/` offset above
- *   the number row, backslash at the end of the bottom row so every row is exactly 15 units). The
- *   "type like a computer" layout, and the default in landscape.
- * - [FULL]: a **12-unit** full screen layout. Narrower than PC_60 on purpose - full screen trades
- *   key count for key size, and 15 units across a phone leaves keys barely wider than a fingertip.
- * - [SPLIT]: the same 12-unit grid split into a left and a right half with a gap down the middle,
- *   for two-handed use.
+ * Four shapes, one renderer:
+ * - [PC_60] - the "type like a computer" layout: a 60% expressed the way its spec reads
+ *   (15 key units wide, Esc/` above the number row). Landscape; the default in a wide window.
+ * - [PHONE_12] - the general-purpose phone keyboard, **12 units** wide, five rows. Fewer keys than
+ *   [PC_60] and therefore bigger ones; the default in a narrow window.
+ * - [SPLIT_13] - the same idea split down the middle (6 units + a gap + 6 units) for two-handed
+ *   landscape use, with a space bar under each thumb.
+ * - [GAME] - a pad for streaming and games: WASD-ish movement under the left thumb, an inverted-T
+ *   arrow cluster under the right. **Not a typing layout** ([KeyboardLayout.textCapable] is false).
  *
- * Every row must sum to the same number of units **including its indent** - `validate()` enforces
- * it, so a mistyped width fails the unit tests instead of looking broken on a device.
+ * ## What was deleted, and why it is written down
+ *
+ * The 2026-09-24 layouts round removed two of the three previous layouts. Both had defects that a
+ * hand-written table hides well and a phone reveals immediately:
+ * - the old `full` used **0.5-unit keys** for `\` and `,`. Half a unit is ~15dp on a 360dp phone -
+ *   narrower than a fingertip - and it shipped neither `-` nor `'`, so "e-mail" or "don't" could not
+ *   be typed at all.
+ * - the old `split` was **missing l, o and p**. "hello", "you" and "people" were literally
+ *   untypable. The unit test of the day only asked whether the *essential* editing keys were
+ *   present, so it passed.
+ *
+ * The guards that would have caught both now exist in `KeyboardsTest`: every text-capable layout
+ * must contain all 26 letters and all 10 digits, and no key may be narrower than one unit.
+ *
+ * ## The two rules a layout table must satisfy
+ *
+ * 1. every row sums to the same number of units **including its indent** - `validate()` enforces it,
+ *    otherwise the renderer squeezes the wider rows and keys change size from row to row;
+ * 2. no key shorter than one unit and no row of more than 13-15 keys - a phone key that narrow is
+ *    not tappable.
  */
 internal object Keyboards {
 
@@ -42,144 +61,140 @@ internal object Keyboards {
     private fun spacer(widthUnits: Float = 1f) =
         KeySpec("", KeyEvent.KEYCODE_UNKNOWN, widthUnits, kind = KeyKind.SPACER)
 
+    /** Letters of [letters] (lower case), in order, each one key unit wide. */
+    private fun letterKeys(letters: String, upperCase: Boolean = false): List<KeySpec> =
+        letters.map { ch ->
+            key(
+                label = if (upperCase) ch.uppercaseChar().toString() else ch.toString(),
+                keyCode = KeyEvent.KEYCODE_A + (ch - 'a'),
+            )
+        }
+
+    /**
+     * `1`..`0` with their shifted symbols, shared by every layout that has a number row.
+     *
+     * Shared on purpose: three layouts each spelling out ten digits is three chances to typo one.
+     */
+    private val DIGITS: List<KeySpec> = listOf(
+        key("1", KeyEvent.KEYCODE_1, shiftLabel = "!"),
+        key("2", KeyEvent.KEYCODE_2, shiftLabel = "@"),
+        key("3", KeyEvent.KEYCODE_3, shiftLabel = "#"),
+        key("4", KeyEvent.KEYCODE_4, shiftLabel = "$"),
+        key("5", KeyEvent.KEYCODE_5, shiftLabel = "%"),
+        key("6", KeyEvent.KEYCODE_6, shiftLabel = "^"),
+        key("7", KeyEvent.KEYCODE_7, shiftLabel = "&"),
+        key("8", KeyEvent.KEYCODE_8, shiftLabel = "*"),
+        key("9", KeyEvent.KEYCODE_9, shiftLabel = "("),
+        key("0", KeyEvent.KEYCODE_0, shiftLabel = ")"),
+    )
+
+    private val ESC = action("Esc", KeyEvent.KEYCODE_ESCAPE)
+    private val BACKSPACE = action("Bksp", KeyEvent.KEYCODE_DEL)
+
     /** 60% layout: five rows, every row exactly 15 key units wide. */
     val PC_60: KeyboardLayout = KeyboardLayout(
         id = "pc60",
         displayName = "电脑全键盘",
         rows = listOf(
             // Esc(1) + `(1) + 1..0(10) + -(1) + =(1) + Bksp(1) = 15 exactly.
-            listOf(
-                action("Esc", KeyEvent.KEYCODE_ESCAPE),
-                key("`", KeyEvent.KEYCODE_GRAVE, shiftLabel = "~"),
-                key("1", KeyEvent.KEYCODE_1, shiftLabel = "!"),
-                key("2", KeyEvent.KEYCODE_2, shiftLabel = "@"),
-                key("3", KeyEvent.KEYCODE_3, shiftLabel = "#"),
-                key("4", KeyEvent.KEYCODE_4, shiftLabel = "$"),
-                key("5", KeyEvent.KEYCODE_5, shiftLabel = "%"),
-                key("6", KeyEvent.KEYCODE_6, shiftLabel = "^"),
-                key("7", KeyEvent.KEYCODE_7, shiftLabel = "&"),
-                key("8", KeyEvent.KEYCODE_8, shiftLabel = "*"),
-                key("9", KeyEvent.KEYCODE_9, shiftLabel = "("),
-                key("0", KeyEvent.KEYCODE_0, shiftLabel = ")"),
-                key("-", KeyEvent.KEYCODE_MINUS, shiftLabel = "_"),
-                key("=", KeyEvent.KEYCODE_EQUALS, shiftLabel = "+"),
-                action("Bksp", KeyEvent.KEYCODE_DEL),
-            ),
-            listOf(
-                action("Tab", KeyEvent.KEYCODE_TAB, widthUnits = 1.5f),
-                key("Q", KeyEvent.KEYCODE_Q), key("W", KeyEvent.KEYCODE_W),
-                key("E", KeyEvent.KEYCODE_E), key("R", KeyEvent.KEYCODE_R),
-                key("T", KeyEvent.KEYCODE_T), key("Y", KeyEvent.KEYCODE_Y),
-                key("U", KeyEvent.KEYCODE_U), key("I", KeyEvent.KEYCODE_I),
-                key("O", KeyEvent.KEYCODE_O), key("P", KeyEvent.KEYCODE_P),
-                key("[", KeyEvent.KEYCODE_LEFT_BRACKET, shiftLabel = "{"),
-                key("]", KeyEvent.KEYCODE_RIGHT_BRACKET, shiftLabel = "}"),
-                key("\\", KeyEvent.KEYCODE_BACKSLASH, widthUnits = 1.5f, shiftLabel = "|"),
-            ),
-            listOf(
-                modifier("Caps", KeyEvent.KEYCODE_CAPS_LOCK, widthUnits = 1.75f),
-                key("A", KeyEvent.KEYCODE_A), key("S", KeyEvent.KEYCODE_S),
-                key("D", KeyEvent.KEYCODE_D), key("F", KeyEvent.KEYCODE_F),
-                key("G", KeyEvent.KEYCODE_G), key("H", KeyEvent.KEYCODE_H),
-                key("J", KeyEvent.KEYCODE_J), key("K", KeyEvent.KEYCODE_K),
-                key("L", KeyEvent.KEYCODE_L),
-                key(";", KeyEvent.KEYCODE_SEMICOLON, shiftLabel = ":"),
-                key("'", KeyEvent.KEYCODE_APOSTROPHE, shiftLabel = "\""),
-                action("Enter", KeyEvent.KEYCODE_ENTER, widthUnits = 2.25f),
-            ),
-            listOf(
-                modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT, widthUnits = 2.25f),
-                key("Z", KeyEvent.KEYCODE_Z), key("X", KeyEvent.KEYCODE_X),
-                key("C", KeyEvent.KEYCODE_C), key("V", KeyEvent.KEYCODE_V),
-                key("B", KeyEvent.KEYCODE_B), key("N", KeyEvent.KEYCODE_N),
-                key("M", KeyEvent.KEYCODE_M),
-                key(",", KeyEvent.KEYCODE_COMMA, shiftLabel = "<"),
-                key(".", KeyEvent.KEYCODE_PERIOD, shiftLabel = ">"),
-                key("/", KeyEvent.KEYCODE_SLASH, shiftLabel = "?"),
-                modifier("Shift", KeyEvent.KEYCODE_SHIFT_RIGHT, widthUnits = 2.75f),
-            ),
-            // 1.25 + 1.25 + 1.25 + 6.25 + 1.25 + 1.25 + 1.25 + 1.25 = 15
+            listOf(ESC, key("`", KeyEvent.KEYCODE_GRAVE, shiftLabel = "~")) +
+                DIGITS +
+                listOf(
+                    key("-", KeyEvent.KEYCODE_MINUS, shiftLabel = "_"),
+                    key("=", KeyEvent.KEYCODE_EQUALS, shiftLabel = "+"),
+                    BACKSPACE,
+                ),
+            // Tab(1.5) + q..p(10) + [(1) + ](1) + \(1.5) = 15.
+            listOf(action("Tab", KeyEvent.KEYCODE_TAB, widthUnits = 1.5f)) +
+                letterKeys("qwertyuiop", upperCase = true) +
+                listOf(
+                    key("[", KeyEvent.KEYCODE_LEFT_BRACKET, shiftLabel = "{"),
+                    key("]", KeyEvent.KEYCODE_RIGHT_BRACKET, shiftLabel = "}"),
+                    key("\\", KeyEvent.KEYCODE_BACKSLASH, widthUnits = 1.5f, shiftLabel = "|"),
+                ),
+            // Caps(1.75) + a..l(9) + ;(1) + '(1) + Enter(2.25) = 15.
+            listOf(action("Caps", KeyEvent.KEYCODE_CAPS_LOCK, widthUnits = 1.75f)) +
+                letterKeys("asdfghjkl", upperCase = true) +
+                listOf(
+                    key(";", KeyEvent.KEYCODE_SEMICOLON, shiftLabel = ":"),
+                    key("'", KeyEvent.KEYCODE_APOSTROPHE, shiftLabel = "\""),
+                    action("Enter", KeyEvent.KEYCODE_ENTER, widthUnits = 2.25f),
+                ),
+            // Shift(2.25) + z..m(7) + ,(1) + .(1) + /(1) + Shift(2.75) = 15.
+            listOf(modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT, widthUnits = 2.25f)) +
+                letterKeys("zxcvbnm", upperCase = true) +
+                listOf(
+                    key(",", KeyEvent.KEYCODE_COMMA, shiftLabel = "<"),
+                    key(".", KeyEvent.KEYCODE_PERIOD, shiftLabel = ">"),
+                    key("/", KeyEvent.KEYCODE_SLASH, shiftLabel = "?"),
+                    modifier("Shift", KeyEvent.KEYCODE_SHIFT_RIGHT, widthUnits = 2.75f),
+                ),
+            // Ctrl(1.25) + Win(1) + Alt(1.25) + Space(5.25) + Alt(1.25) + Win(1) + arrows(4) = 15.
+            //
+            // The arrow pads were added in the layouts round: the row used to carry only left/right,
+            // which is the one pair a text caret does not need most (up/down move by line). Four
+            // arrows cost the space bar one unit and nothing else.
             listOf(
                 modifier("Ctrl", KeyEvent.KEYCODE_CTRL_LEFT, widthUnits = 1.25f),
-                modifier("Win", KeyEvent.KEYCODE_META_LEFT, widthUnits = 1.25f),
+                modifier("Win", KeyEvent.KEYCODE_META_LEFT, widthUnits = 1f),
                 modifier("Alt", KeyEvent.KEYCODE_ALT_LEFT, widthUnits = 1.25f),
-                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 6.25f),
+                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 5.25f),
                 modifier("Alt", KeyEvent.KEYCODE_ALT_RIGHT, widthUnits = 1.25f),
-                modifier("Win", KeyEvent.KEYCODE_META_RIGHT, widthUnits = 1.25f),
-                action("←", KeyEvent.KEYCODE_DPAD_LEFT, widthUnits = 1.25f),
-                action("→", KeyEvent.KEYCODE_DPAD_RIGHT, widthUnits = 1.25f),
+                modifier("Win", KeyEvent.KEYCODE_META_RIGHT, widthUnits = 1f),
+                action("←", KeyEvent.KEYCODE_DPAD_LEFT),
+                action("↑", KeyEvent.KEYCODE_DPAD_UP),
+                action("↓", KeyEvent.KEYCODE_DPAD_DOWN),
+                action("→", KeyEvent.KEYCODE_DPAD_RIGHT),
             ),
         ),
     )
 
     /**
-     * Full screen layout with a number row: **12 key units wide**, five rows.
+     * The general-purpose phone keyboard: **12 units, five rows**, landscape or portrait.
      *
-     * Why a separate layout instead of reusing [PC_60]: full screen trades key *count* for
-     * key *size*. 15 units of PC_60 across a phone in landscape leaves keys barely wider
-     * than a fingertip, so this one is narrower (12 units, fewer/wider keys), which makes
-     * every key bigger at the same screen width.
-     *
-     * Every row is exactly 12 units, and each row is balanced so neither end is much
-     * wider than the other - an unbalanced row reads as a rendering mistake.
+     * 12 units is a deliberate compromise. 15 units (PC_60) across a 360dp-wide portrait phone
+     * leaves a 24dp key - below a fingertip - while 12 units leaves 30dp, which is the width a
+     * system keyboard uses. Five rows is what the content needs: a number row, three letter rows and
+     * a control row. Nothing here is narrower than one unit, which is what the deleted `full` got
+     * wrong, and every row reads like a keyboard row: a wide key at one end (Esc/Tab/Caps/Shift) and
+     * a wide key at the other (Bksp/Enter), so the row ends do not line up into a grid.
      */
-    val FULL: KeyboardLayout = KeyboardLayout(
-        id = "full",
-        displayName = "全屏（带数字行）",
+    val PHONE_12: KeyboardLayout = KeyboardLayout(
+        id = "phone12",
+        displayName = "手机全屏",
         rows = listOf(
             // Esc(1) + 1..0(10) + Bksp(1) = 12.
-            listOf(
-                action("Esc", KeyEvent.KEYCODE_ESCAPE),
-                key("1", KeyEvent.KEYCODE_1, shiftLabel = "!"),
-                key("2", KeyEvent.KEYCODE_2, shiftLabel = "@"),
-                key("3", KeyEvent.KEYCODE_3, shiftLabel = "#"),
-                key("4", KeyEvent.KEYCODE_4, shiftLabel = "$"),
-                key("5", KeyEvent.KEYCODE_5, shiftLabel = "%"),
-                key("6", KeyEvent.KEYCODE_6, shiftLabel = "^"),
-                key("7", KeyEvent.KEYCODE_7, shiftLabel = "&"),
-                key("8", KeyEvent.KEYCODE_8, shiftLabel = "*"),
-                key("9", KeyEvent.KEYCODE_9, shiftLabel = "("),
-                key("0", KeyEvent.KEYCODE_0, shiftLabel = ")"),
-                action("Bksp", KeyEvent.KEYCODE_DEL),
-            ),
-            // Tab(1.5) + q..p(10) + \(0.5) = 12.
-            listOf(
-                action("Tab", KeyEvent.KEYCODE_TAB, widthUnits = 1.5f),
-                key("q", KeyEvent.KEYCODE_Q), key("w", KeyEvent.KEYCODE_W),
-                key("e", KeyEvent.KEYCODE_E), key("r", KeyEvent.KEYCODE_R),
-                key("t", KeyEvent.KEYCODE_T), key("y", KeyEvent.KEYCODE_Y),
-                key("u", KeyEvent.KEYCODE_U), key("i", KeyEvent.KEYCODE_I),
-                key("o", KeyEvent.KEYCODE_O), key("p", KeyEvent.KEYCODE_P),
-                key("\\", KeyEvent.KEYCODE_BACKSLASH, widthUnits = 0.5f, shiftLabel = "|"),
-            ),
-            // Caps(1) + a..l(9) + Enter(2) = 12.
-            listOf(
-                action("Caps", KeyEvent.KEYCODE_CAPS_LOCK),
-                key("a", KeyEvent.KEYCODE_A), key("s", KeyEvent.KEYCODE_S),
-                key("d", KeyEvent.KEYCODE_D), key("f", KeyEvent.KEYCODE_F),
-                key("g", KeyEvent.KEYCODE_G), key("h", KeyEvent.KEYCODE_H),
-                key("j", KeyEvent.KEYCODE_J), key("k", KeyEvent.KEYCODE_K),
-                key("l", KeyEvent.KEYCODE_L),
-                action("Enter", KeyEvent.KEYCODE_ENTER, widthUnits = 2f),
-            ),
-            // Shift(1.5) + z..m(7) + ,(0.5) + .(1) + /(1) + Shift(1) = 12.
-            listOf(
-                modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT, widthUnits = 1.5f),
-                key("z", KeyEvent.KEYCODE_Z), key("x", KeyEvent.KEYCODE_X),
-                key("c", KeyEvent.KEYCODE_C), key("v", KeyEvent.KEYCODE_V),
-                key("b", KeyEvent.KEYCODE_B), key("n", KeyEvent.KEYCODE_N),
-                key("m", KeyEvent.KEYCODE_M),
-                key(",", KeyEvent.KEYCODE_COMMA, widthUnits = 0.5f, shiftLabel = "<"),
-                key(".", KeyEvent.KEYCODE_PERIOD, shiftLabel = ">"),
-                key("/", KeyEvent.KEYCODE_SLASH, shiftLabel = "?"),
-                modifier("Shift", KeyEvent.KEYCODE_SHIFT_RIGHT),
-            ),
-            // Ctrl(1.25) + Alt(1) + Space(4.5) + Alt(1) + Ctrl(1.25) + arrows(3) = 12.
+            listOf(ESC) + DIGITS + listOf(BACKSPACE),
+            // Tab(1) + q..p(10) + '(1) = 12. The apostrophe rides at the end of the top letter row,
+            // where a physical keyboard also keeps it - and where the deleted `full` had nothing.
+            listOf(action("Tab", KeyEvent.KEYCODE_TAB)) +
+                letterKeys("qwertyuiop") +
+                listOf(key("'", KeyEvent.KEYCODE_APOSTROPHE, shiftLabel = "\"")),
+            // Caps(1) + a..l(9) + Enter(2) = 12. Enter gets two units: it is the most-pressed key
+            // that is not a letter, and a one-unit Enter on a phone is a miss waiting to happen.
+            listOf(action("Caps", KeyEvent.KEYCODE_CAPS_LOCK)) +
+                letterKeys("asdfghjkl") +
+                listOf(action("Enter", KeyEvent.KEYCODE_ENTER, widthUnits = 2f)),
+            // Shift(1) + z..m(7) + ,(1) + .(1) + /(1) + Shift(1) = 12.
+            // Two one-unit shifts, one at each bottom corner, so either thumb can capitalise.
+            listOf(modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT)) +
+                letterKeys("zxcvbnm") +
+                listOf(
+                    key(",", KeyEvent.KEYCODE_COMMA, shiftLabel = "<"),
+                    key(".", KeyEvent.KEYCODE_PERIOD, shiftLabel = ">"),
+                    key("/", KeyEvent.KEYCODE_SLASH, shiftLabel = "?"),
+                    modifier("Shift", KeyEvent.KEYCODE_SHIFT_RIGHT),
+                ),
+            // Ctrl(1.25) + Alt(1) + -(1) + Space(3.5) + Alt(1) + Ctrl(1.25) + ←(1) + ↓(1) + →(1) = 12.
+            // The hyphen lives here because it is one of the six punctuation marks ordinary text
+            // needs (the deleted `full` had none, so "e-mail" was untypable) and the number row has
+            // no room for it once Esc and Bksp own the ends.
             listOf(
                 modifier("Ctrl", KeyEvent.KEYCODE_CTRL_LEFT, widthUnits = 1.25f),
-                modifier("Alt", KeyEvent.KEYCODE_ALT_LEFT, widthUnits = 1f),
-                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 4.5f),
-                modifier("Alt", KeyEvent.KEYCODE_ALT_RIGHT, widthUnits = 1f),
+                modifier("Alt", KeyEvent.KEYCODE_ALT_LEFT),
+                key("-", KeyEvent.KEYCODE_MINUS, shiftLabel = "_"),
+                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 3.5f),
+                modifier("Alt", KeyEvent.KEYCODE_ALT_RIGHT),
                 modifier("Ctrl", KeyEvent.KEYCODE_CTRL_RIGHT, widthUnits = 1.25f),
                 action("←", KeyEvent.KEYCODE_DPAD_LEFT),
                 action("↓", KeyEvent.KEYCODE_DPAD_DOWN),
@@ -189,99 +204,149 @@ internal object Keyboards {
     )
 
     /**
-     * A **split** 12-unit, five-row layout: the left half is typed with the left thumb, the right
-     * half with the right one, with a gap down the middle.
+     * The two-handed landscape layout: **13 units, five rows**, split 6 + gap(1) + 6.
      *
-     * For a phone held in two hands, where reaching the middle of a full-width keyboard means
-     * moving a hand. The gap is a [KeyKind.SPACER]: it takes width so the halves line up but
-     * draws nothing.
+     * This replaces the deleted `split`, which was 12 units wide and - more importantly - was
+     * missing l, o and p, so it could not spell "hello" or "you". The half is 6 units here rather
+     * than 5.5 because that is what the letter rows need to stay whole:
      *
-     * Every row sums to 12 units, and every row is split 5.5 + 1 + 5.5 so the two hands always
-     * land on the same column.
+     * ```
+     *   1 2 3 4 5   |   6 7 8 9 0  ⌫
+     *   q w e r t   |   y u i o p  '
+     *   a s d f g   |   h j k l -  ⏎
+     *   z x c v b   |   n m , . /  ⇧
+     * ```
+     *
+     * The gap is one unit and sits in the same column on every row, so the two hands always land on
+     * the same column, and the bottom row carries a full-width space bar under each thumb.
      */
-    val SPLIT: KeyboardLayout = KeyboardLayout(
-        id = "split",
+    val SPLIT_13: KeyboardLayout = KeyboardLayout(
+        id = "split13",
         displayName = "双手分体（横屏）",
         rows = listOf(
-            // 5 x 1 + gap(1) + 5 x 1 = 11, and every row below is 12 - so this row carries one
-            // extra 1-unit key to match. The gap keeps the two hands on the same columns.
-            listOf(
-                key("1", KeyEvent.KEYCODE_1, shiftLabel = "!"),
-                key("2", KeyEvent.KEYCODE_2, shiftLabel = "@"),
-                key("3", KeyEvent.KEYCODE_3, shiftLabel = "#"),
-                key("4", KeyEvent.KEYCODE_4, shiftLabel = "$"),
-                key("5", KeyEvent.KEYCODE_5, shiftLabel = "%"),
-                spacer(),
-                key("6", KeyEvent.KEYCODE_6, shiftLabel = "^"),
-                key("7", KeyEvent.KEYCODE_7, shiftLabel = "&"),
-                key("8", KeyEvent.KEYCODE_8, shiftLabel = "*"),
-                key("9", KeyEvent.KEYCODE_9, shiftLabel = "("),
-                key("0", KeyEvent.KEYCODE_0, shiftLabel = ")"),
-                key("=", KeyEvent.KEYCODE_EQUALS, shiftLabel = "+"),
-            ),
-            // Tab(1.5) + q..r(4) + gap(1) + t..i(4) + Bksp(1.5) = 12, and because that already
-            // fills the row there is no room for a backslash here: `\` stays in the layouts that
-            // have a full punctuation row, and this row keeps its two clean halves.
-            listOf(
-                action("Tab", KeyEvent.KEYCODE_TAB, widthUnits = 1.5f),
-                key("q", KeyEvent.KEYCODE_Q), key("w", KeyEvent.KEYCODE_W),
-                key("e", KeyEvent.KEYCODE_E), key("r", KeyEvent.KEYCODE_R),
-                spacer(),
-                key("t", KeyEvent.KEYCODE_T), key("y", KeyEvent.KEYCODE_Y),
-                key("u", KeyEvent.KEYCODE_U), key("i", KeyEvent.KEYCODE_I),
-                action("Bksp", KeyEvent.KEYCODE_DEL, widthUnits = 1.5f),
-            ),
-            // Caps(1) + asdf(4) + gap(1) + ghjk(4) + ;(1) + Enter(1) = 12.
-            listOf(
-                action("Caps", KeyEvent.KEYCODE_CAPS_LOCK),
-                key("a", KeyEvent.KEYCODE_A), key("s", KeyEvent.KEYCODE_S),
-                key("d", KeyEvent.KEYCODE_D), key("f", KeyEvent.KEYCODE_F),
-                spacer(),
-                key("g", KeyEvent.KEYCODE_G), key("h", KeyEvent.KEYCODE_H),
-                key("j", KeyEvent.KEYCODE_J), key("k", KeyEvent.KEYCODE_K),
-                key(";", KeyEvent.KEYCODE_SEMICOLON, shiftLabel = ":"),
-                action("Enter", KeyEvent.KEYCODE_ENTER),
-            ),
-            // Shift(1.5) + zxcv(4) + gap(1) + bnm(3) + ,(1) + Shift(1.25) + ?(0.25)? No:
-            // Shift(1.5) + zxcv(4) + gap(1) + bnm(3) + ,(1) + Shift(1.5) = 12 exactly.
-            listOf(
-                modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT, widthUnits = 1.5f),
-                key("z", KeyEvent.KEYCODE_Z), key("x", KeyEvent.KEYCODE_X),
-                key("c", KeyEvent.KEYCODE_C), key("v", KeyEvent.KEYCODE_V),
-                spacer(),
-                key("b", KeyEvent.KEYCODE_B), key("n", KeyEvent.KEYCODE_N),
-                key("m", KeyEvent.KEYCODE_M),
-                key(",", KeyEvent.KEYCODE_COMMA, shiftLabel = "<"),
-                modifier("Shift", KeyEvent.KEYCODE_SHIFT_RIGHT, widthUnits = 1.5f),
-            ),
-            // Ctrl(1.25) + Alt(1) + Space(2.75) + gap(1) + Space(2.75) + /(1) + Alt(1) +
-            // Ctrl(1.25) = 12. Two space bars: with the hands apart, either thumb gets its own.
+            // Esc(1) + 1..5(5) = 6 | 6..0(5) + Bksp(1) = 6.
+            // Backspace sits at the top of the right half, where a split keyboard keeps it; the
+            // first draft of this layout forgot it entirely and the "essential keys" test caught it.
+            listOf(ESC) + DIGITS.subList(0, 5) + listOf(spacer()) +
+                DIGITS.subList(5, 10) + listOf(BACKSPACE),
+            // Tab(1) + q..t(4) = 6 | y..p(5) + '(1) = 6.
+            listOf(action("Tab", KeyEvent.KEYCODE_TAB)) +
+                letterKeys("qwert") + listOf(spacer()) +
+                letterKeys("yuiop") +
+                listOf(key("'", KeyEvent.KEYCODE_APOSTROPHE, shiftLabel = "\"")),
+            // Caps(1) + a..g(5) = 6 | h..l(4) + -(1) + Enter(1) = 6.
+            listOf(action("Caps", KeyEvent.KEYCODE_CAPS_LOCK)) +
+                letterKeys("asdfg") + listOf(spacer()) +
+                letterKeys("hjkl") +
+                listOf(
+                    key("-", KeyEvent.KEYCODE_MINUS, shiftLabel = "_"),
+                    action("Enter", KeyEvent.KEYCODE_ENTER),
+                ),
+            // Shift(1) + z..b(5) = 6 | n..m(2) + ,(1) + .(1) + /(1) + Shift(1) = 6.
+            listOf(modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT)) +
+                letterKeys("zxcvb") + listOf(spacer()) +
+                letterKeys("nm") +
+                listOf(
+                    key(",", KeyEvent.KEYCODE_COMMA, shiftLabel = "<"),
+                    key(".", KeyEvent.KEYCODE_PERIOD, shiftLabel = ">"),
+                    key("/", KeyEvent.KEYCODE_SLASH, shiftLabel = "?"),
+                    modifier("Shift", KeyEvent.KEYCODE_SHIFT_RIGHT),
+                ),
+            // Ctrl(1.25) + Alt(1) + Space(3.75) = 6 | Space(3.75) + Alt(1) + Ctrl(1.25) = 6.
+            // Two space bars, mirrored: with the hands apart, either thumb gets its own.
             listOf(
                 modifier("Ctrl", KeyEvent.KEYCODE_CTRL_LEFT, widthUnits = 1.25f),
-                modifier("Alt", KeyEvent.KEYCODE_ALT_LEFT, widthUnits = 1f),
-                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 2.75f),
+                modifier("Alt", KeyEvent.KEYCODE_ALT_LEFT),
+                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 3.75f),
                 spacer(),
-                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 2.75f),
-                key("/", KeyEvent.KEYCODE_SLASH, shiftLabel = "?"),
-                modifier("Alt", KeyEvent.KEYCODE_ALT_RIGHT, widthUnits = 1f),
+                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 3.75f),
+                modifier("Alt", KeyEvent.KEYCODE_ALT_RIGHT),
                 modifier("Ctrl", KeyEvent.KEYCODE_CTRL_RIGHT, widthUnits = 1.25f),
             ),
         ),
     )
 
+    /**
+     * A pad for games and streaming: **12 units, four rows**, two thumb zones.
+     *
+     * Why this exists: the reported use of this app includes playing games on the host, and a typing
+     * keyboard is the wrong shape for that - the keys a game needs (WASD, QERF, digits 1-5, Space,
+     * Shift, Ctrl, Tab, Esc, Enter and a real arrow cluster) are scattered over three letter rows on
+     * [PHONE_12] and the arrows are squeezed into the control row. Here they get their own halves:
+     *
+     * ```
+     *   Esc  Tab  1 2 3 4 5  Bksp  Enter
+     *   Shift  Q W E R      [ ↑ ]        (↑ centred over ↓)
+     *   Ctrl   A S D  F     ← ↓ →
+     *   Space   Z X   [gap]  C V  Space
+     * ```
+     *
+     * It is deliberately **not** a typing layout: it carries twelve letters, not twenty-six.
+     * [KeyboardLayout.textCapable] says so, the picker names it that way, and the tests do not ask it
+     * for the full alphabet.
+     */
+    val GAME: KeyboardLayout = KeyboardLayout(
+        id = "game",
+        displayName = "游戏方向键（不能打字）",
+        textCapable = false,
+        rows = listOf(
+            // Esc(2) + Tab(1.5) + 1..5(5) + Bksp(1.5) + Enter(2) = 12.
+            listOf(
+                action("Esc", KeyEvent.KEYCODE_ESCAPE, widthUnits = 2f),
+                action("Tab", KeyEvent.KEYCODE_TAB, widthUnits = 1.5f),
+            ) + DIGITS.subList(0, 5) + listOf(
+                action("Bksp", KeyEvent.KEYCODE_DEL, widthUnits = 1.5f),
+                action("Enter", KeyEvent.KEYCODE_ENTER, widthUnits = 2f),
+            ),
+            // Shift(2) + QWER(4) = 6 | gap(2) + ↑(2) + gap(2) = 6.
+            listOf(modifier("Shift", KeyEvent.KEYCODE_SHIFT_LEFT, widthUnits = 2f)) +
+                letterKeys("qwer", upperCase = true) +
+                listOf(spacer(2f), action("↑", KeyEvent.KEYCODE_DPAD_UP, widthUnits = 2f), spacer(2f)),
+            // Ctrl(1.5) + ASD(3) + F(1.5) = 6 | ←(2) + ↓(2) + →(2) = 6.
+            listOf(modifier("Ctrl", KeyEvent.KEYCODE_CTRL_LEFT, widthUnits = 1.5f)) +
+                letterKeys("asd", upperCase = true) +
+                listOf(action("F", KeyEvent.KEYCODE_F, widthUnits = 1.5f)) +
+                listOf(
+                    action("←", KeyEvent.KEYCODE_DPAD_LEFT, widthUnits = 2f),
+                    action("↓", KeyEvent.KEYCODE_DPAD_DOWN, widthUnits = 2f),
+                    action("→", KeyEvent.KEYCODE_DPAD_RIGHT, widthUnits = 2f),
+                ),
+            // Space(3.5) + ZX(2) = 5.5 | gap(1) | CV(2) + Space(3.5) = 5.5.
+            listOf(
+                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 3.5f),
+                key("Z", KeyEvent.KEYCODE_Z),
+                key("X", KeyEvent.KEYCODE_X),
+                spacer(),
+                key("C", KeyEvent.KEYCODE_C),
+                key("V", KeyEvent.KEYCODE_V),
+                key("Space", KeyEvent.KEYCODE_SPACE, widthUnits = 3.5f),
+            ),
+        ),
+    )
 
     /** Every layout the picker offers, in display order. */
-    val all: List<KeyboardLayout> = listOf(PC_60, FULL, SPLIT)
+    val all: List<KeyboardLayout> = listOf(PC_60, PHONE_12, SPLIT_13, GAME)
 
     /** Looks up a layout by id, falling back to the first one. */
-    fun byId(id: String?): KeyboardLayout = all.firstOrNull { it.id == id } ?: all.first()
+    fun byId(id: String?): KeyboardLayout = byIdOrNull(id) ?: all.first()
 
     /**
-     * The layout to use when the user has not chosen one.
+     * Looks up a layout by id, or `null` when there is no such layout.
+     *
+     * [byId]'s fallback is "the first layout", which is what a caller wants when it only needs *a*
+     * keyboard. A caller that has to place the result on screen wants to tell "the user picked this"
+     * apart from "the saved id is gone" - a layout that was deleted in a later version leaves a stale
+     * id in the settings, and falling back to the first entry would silently hand a portrait phone the
+     * 15-unit PC layout. That caller asks [byIdOrNull] and then [defaultFor] instead.
+     */
+    fun byIdOrNull(id: String?): KeyboardLayout? = all.firstOrNull { it.id == id }
+
+    /**
+     * The layout to use when the user has not chosen one (or the chosen one no longer exists).
      *
      * [wide] describes the window, not the device: the same phone is narrow in portrait and wide
-     * in landscape. A narrow window gets [FULL] and a wide one gets [PC_60]; the user's own
+     * in landscape. A narrow window gets [PHONE_12] and a wide one gets [PC_60]; the user's own
      * choice, once made, always wins over this.
      */
-    fun defaultFor(wide: Boolean): KeyboardLayout = if (wide) PC_60 else FULL
+    fun defaultFor(wide: Boolean): KeyboardLayout = if (wide) PC_60 else PHONE_12
 }

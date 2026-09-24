@@ -184,14 +184,22 @@ private fun KeyboardScreen(
     val state by session.state.collectAsState()
     val modifierLatch by settings.modifierLatch.collectAsState()
     val fullscreenEnabled by settings.fullscreen.collectAsState()
-    // Which layout is on screen. A saved choice always wins; when the user has never chosen,
-    // a narrow window gets the 10-unit phone layout instead of the 15-unit PC one.
+    // Which layout is on screen. A saved choice always wins; when the user has never chosen - or
+    // chose a layout that a later version deleted - a narrow window gets the 12-unit phone layout
+    // instead of the 15-unit PC one.
     //
     // Measured in portrait on a 360dp-wide phone: 15 unit columns give a 24dp key, smaller
-    // than a fingertip, while 10 units give 36dp. A keyboard that is complete but unusable is
-    // worse than one with fewer keys, and the full layout is still one pick away.
+    // than a fingertip, while 12 units give 30dp, which is what a system keyboard uses. A
+    // keyboard that is complete but unusable is worse than one with fewer keys, and the full
+    // layout is still one pick away. Falling back to `Keyboards.first()` for a stale id would
+    // hand portrait exactly that unusable layout, which is why this asks for the nullable lookup.
     val widthDp = LocalConfiguration.current.screenWidthDp
-    var layout by remember { mutableStateOf(Keyboards.byId(settings.layoutId.value)) }
+    var layout by remember {
+        mutableStateOf(
+            Keyboards.byIdOrNull(settings.layoutId.value)
+                ?: Keyboards.defaultFor(wide = widthDp >= NARROW_WIDTH_DP),
+        )
+    }
     LaunchedEffect(widthDp, settings.layoutId.value) {
         // Only when the choice is unset; otherwise the user's pick would be overwritten on
         // every rotation.
