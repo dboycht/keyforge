@@ -23,6 +23,9 @@
     <string name="keyboard_haptics">按键震动</string>
     <string name="keyboard_sound">按键音</string>
     <string name="keyboard_theme">配色</string>
+    <string name="about_title">关于键铸</string>
+    <string name="about_open">查看</string>
+    <string name="about_version">版本</string>
     <string name="keyboard_fullscreen">全屏键盘</string>
     <string name="keyboard_fullscreen_hint">打开后隐藏系统栏、键盘占满屏幕；键盘只在全屏下显示</string>
     <string name="keyboard_exit_fullscreen">退出全屏</string>

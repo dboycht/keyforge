@@ -68,6 +68,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -596,6 +597,104 @@ private fun SettingsRows(
             onCheckedChange = onSoundToggle,
         )
         ThemePickerRow(current = palette, onPick = onThemePick)
+        AboutRow()
+    }
+}
+
+/**
+ * The "About" entry: a label plus a button, opening [AboutDialog].
+ *
+ * It sits at the end of the settings rows, which is where people look for it - and because both the
+ * settings page and the full-screen panel render these rows, the entry exists in both without a
+ * second copy that could drift.
+ */
+@Composable
+private fun AboutRow() {
+    var open by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = stringResource(R.string.about_title), style = MaterialTheme.typography.bodyMedium)
+        OutlinedButton(
+            onClick = { open = true },
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+            modifier = Modifier.height(30.dp),
+        ) {
+            Text(stringResource(R.string.about_open), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+
+    if (open) {
+        AboutDialog(onDismiss = { open = false })
+    }
+}
+
+/**
+ * What this app is, which build it is, what it works with, and what it cannot do.
+ *
+ * The version comes from the installed package, and the facts come from [AboutInfo] - so this dialog
+ * contains no text that can go stale without a test noticing.
+ */
+@Composable
+private fun AboutDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val version = remember(context) { appVersionName(context) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.about_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = "${AboutInfo.APP_NAME_ZH} · ${AboutInfo.APP_NAME_EN}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    text = "${stringResource(R.string.about_version)} $version",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                AboutFact(AboutInfo.TAGLINE)
+                AboutFact(AboutInfo.SUPPORT, AboutInfo.LABEL_SUPPORT)
+                AboutFact(AboutInfo.HOSTS, AboutInfo.LABEL_HOSTS)
+                AboutFact(AboutInfo.LIMITATION, AboutInfo.LABEL_LIMITATION)
+                AboutFact(AboutInfo.LICENSE_NAME, AboutInfo.LABEL_LICENSE)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { uriHandler.openUri(AboutInfo.REPO_URL) }) {
+                        Text(AboutInfo.LABEL_REPO, style = MaterialTheme.typography.bodySmall)
+                    }
+                    TextButton(onClick = { uriHandler.openUri(AboutInfo.RELEASES_URL) }) {
+                        Text(AboutInfo.LABEL_RELEASES, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.keyboard_chooser_close))
+            }
+        },
+    )
+}
+
+/** One "label: text" line of the About dialog; [label] is omitted for the opening sentence. */
+@Composable
+private fun AboutFact(text: String, label: String? = null) {
+    Column {
+        if (label != null) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(text = text, style = MaterialTheme.typography.bodySmall)
     }
 }
 
