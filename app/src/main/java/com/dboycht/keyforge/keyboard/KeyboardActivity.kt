@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -87,6 +88,7 @@ import com.dboycht.keyforge.session.SessionPhase
 import com.dboycht.keyforge.session.SessionResult
 import com.dboycht.keyforge.session.SessionUiState
 import com.dboycht.keyforge.settings.KeyboardSettings
+import com.dboycht.keyforge.settings.TouchpadSensitivity
 import com.dboycht.keyforge.text.TextDiff
 import com.dboycht.keyforge.text.TextForwarder
 import com.dboycht.keyforge.text.TextSender
@@ -218,6 +220,9 @@ private fun KeyboardScreen(
     // Which overlay is open in full screen. One at a time, and it closes on selection
     // so the user always ends up back at the keyboard.
     var panel by remember { mutableStateOf(FullscreenPanel.NONE) }
+    // Touchpad mode (T7): the full screen grid swaps for a pointer surface + media keys.
+    var touchpadMode by remember { mutableStateOf(false) }
+    val touchpadSensitivity by settings.touchpadSensitivity.collectAsState()
     // Set when the user asks for text forwarding: raises the system keyboard, which hides our grid
     // and shows the forwarding box.
     var textInputRequested by remember { mutableStateOf(false) }
@@ -267,6 +272,16 @@ private fun KeyboardScreen(
                 settings = settings,
                 panel = panel,
                 onPanelChange = { panel = it },
+                touchpadMode = touchpadMode,
+                onTouchpadModeChange = { wanted ->
+                    if (wanted != touchpadMode) {
+                        touchpadMode = wanted
+                        // The keyboard may leave latched modifiers or held keys
+                        // behind; the touchpad starts from a clean slate.
+                        run { session.releaseAll() }
+                    }
+                },
+                touchpadSensitivity = touchpadSensitivity,
                 onLayoutPick = { switchLayout(it) },
                 onExitFullscreen = { settings.setFullscreen(false) },
                 lastResult = lastResult,
@@ -407,6 +422,8 @@ private fun DiagnosticsPanel(
             onSoundToggle = { settings.setSound(it) },
             palette = palette,
             onThemePick = { settings.setThemeId(it.id) },
+            sensitivity = settings.touchpadSensitivity.value,
+            onSensitivityPick = { settings.setTouchpadSensitivity(it) },
         )
 
         Spacer(Modifier.height(6.dp))
@@ -543,6 +560,8 @@ private fun SettingsRows(
     onSoundToggle: (Boolean) -> Unit,
     palette: KeyboardPalette,
     onThemePick: (KeyboardPalette) -> Unit,
+    sensitivity: Float,
+    onSensitivityPick: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -595,6 +614,14 @@ private fun SettingsRows(
             },
             checked = sound,
             onCheckedChange = onSoundToggle,
+        )
+        PickerRow(
+            label = stringResource(R.string.keyboard_touchpad_sensitivity),
+            hint = stringResource(
+                R.string.keyboard_touchpad_sensitivity_hint,
+                sensitivityLabel(sensitivity),
+            ),
+            onClick = { onSensitivityPick(TouchpadSensitivity.fromValue(sensitivity).next().value) },
         )
         ThemePickerRow(current = palette, onPick = onThemePick)
         AboutRow()
@@ -831,6 +858,37 @@ private fun SettingRow(
     }
 }
 
+/** A tappable row that cycles through its values - same shape as [SettingRow], no switch. */
+@Composable
+private fun PickerRow(
+    label: String,
+    hint: String,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+    ) {
+        Text(text = label, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            text = hint,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** Display name of a touchpad sensitivity level (慢/中/快); stale values read as 中. */
+@Composable
+private fun sensitivityLabel(value: Float): String = stringResource(
+    when (TouchpadSensitivity.fromValue(value)) {
+        TouchpadSensitivity.SLOW -> R.string.touchpad_sensitivity_slow
+        TouchpadSensitivity.NORMAL -> R.string.touchpad_sensitivity_normal
+        TouchpadSensitivity.FAST -> R.string.touchpad_sensitivity_fast
+    }
+)
+
 @Composable
 private fun LayoutPicker(current: KeyboardLayout, onPick: (KeyboardLayout) -> Unit) {
     var open by remember { mutableStateOf(false) }
@@ -1043,6 +1101,9 @@ private fun FullscreenLayout(
     settings: KeyboardSettings,
     panel: FullscreenPanel,
     onPanelChange: (FullscreenPanel) -> Unit,
+    touchpadMode: Boolean,
+    onTouchpadModeChange: (Boolean) -> Unit,
+    touchpadSensitivity: Float,
     onLayoutPick: (KeyboardLayout) -> Unit,
     onExitFullscreen: () -> Unit,
     lastResult: String?,
@@ -1070,6 +1131,8 @@ private fun FullscreenLayout(
         FullscreenBar(
             state = state,
             layout = layout,
+            touchpadMode = touchpadMode,
+            onToggleTouchpad = { onTouchpadModeChange(!touchpadMode) },
             onTogglePanel = { wanted ->
                 onPanelChange(if (panel == wanted) FullscreenPanel.NONE else wanted)
             },
@@ -1122,6 +1185,8 @@ private fun FullscreenLayout(
                     onSoundToggle = { settings.setSound(it) },
                     palette = palette,
                     onThemePick = { settings.setThemeId(it.id) },
+                    sensitivity = settings.touchpadSensitivity.value,
+                    onSensitivityPick = { settings.setTouchpadSensitivity(it) },
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
@@ -1160,19 +1225,33 @@ private fun FullscreenLayout(
         // into the forwarding box with their own IME, and two keyboards on screen at once would
         // bury the text field this mode exists to show.
         if (!imeVisible) {
-            KeyboardGrid(
-                layout = layout,
-                session = session,
-                scope = scope,
-                keyDispatcher = keyDispatcher,
-                modifierLatch = modifierLatch,
-                haptics = haptics,
-                sound = sound,
-                palette = palette,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            )
+            if (touchpadMode) {
+                TouchpadSurface(
+                    session = session,
+                    scope = scope,
+                    keyDispatcher = keyDispatcher,
+                    sensitivity = touchpadSensitivity,
+                    haptics = haptics,
+                    palette = palette,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+            } else {
+                KeyboardGrid(
+                    layout = layout,
+                    session = session,
+                    scope = scope,
+                    keyDispatcher = keyDispatcher,
+                    modifierLatch = modifierLatch,
+                    haptics = haptics,
+                    sound = sound,
+                    palette = palette,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                )
+            }
         } else {
             Spacer(modifier = Modifier.weight(1f))
         }
@@ -1184,6 +1263,8 @@ private fun FullscreenLayout(
 private fun FullscreenBar(
     state: SessionUiState,
     layout: KeyboardLayout,
+    touchpadMode: Boolean,
+    onToggleTouchpad: () -> Unit,
     onTogglePanel: (FullscreenPanel) -> Unit,
     onLayoutPick: (KeyboardLayout) -> Unit,
     onExitFullscreen: () -> Unit,
@@ -1246,6 +1327,22 @@ private fun FullscreenBar(
         ) {
             Text(
                 text = stringResource(R.string.forward_section_short),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        // The touchpad toggle: the button label names what you get when you press
+        // it (触摸板 → the pointer surface; 键盘 → back to the grid).
+        OutlinedButton(
+            onClick = onToggleTouchpad,
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+            modifier = Modifier.height(28.dp),
+        ) {
+            Text(
+                text = if (touchpadMode) {
+                    stringResource(R.string.keyboard_touchpad_back)
+                } else {
+                    stringResource(R.string.keyboard_touchpad)
+                },
                 style = MaterialTheme.typography.bodySmall,
             )
         }

@@ -25,6 +25,9 @@ internal class KeyboardSettings private constructor(context: Context) {
     private val _fullscreen = MutableStateFlow(prefs.getBoolean(KEY_FULLSCREEN, false))
     private val _layoutId = MutableStateFlow(prefs.getString(KEY_LAYOUT_ID, null))
     private val _themeId = MutableStateFlow(prefs.getString(KEY_THEME_ID, null))
+    private val _touchpadSensitivity = MutableStateFlow(
+        prefs.getFloat(KEY_TOUCHPAD_SENSITIVITY, TouchpadSensitivity.NORMAL.value)
+    )
 
     /**
      * When true, Shift/Ctrl/Alt/Win behave like phone-keyboard toggles (tap to latch,
@@ -70,6 +73,13 @@ internal class KeyboardSettings private constructor(context: Context) {
      */
     val themeId: StateFlow<String?> = _themeId.asStateFlow()
 
+    /**
+     * Touchpad pointer sensitivity multiplier, one of [TouchpadSensitivity]'s values
+     * (a saved value from an older app version that no longer matches any level
+     * degrades to the default at the call site, same contract as [themeId]).
+     */
+    val touchpadSensitivity: StateFlow<Float> = _touchpadSensitivity.asStateFlow()
+
     fun setModifierLatch(enabled: Boolean) {
         prefs.edit { putBoolean(KEY_MODIFIER_LATCH, enabled) }
         _modifierLatch.value = enabled
@@ -100,6 +110,11 @@ internal class KeyboardSettings private constructor(context: Context) {
         _themeId.value = id
     }
 
+    fun setTouchpadSensitivity(value: Float) {
+        prefs.edit { putFloat(KEY_TOUCHPAD_SENSITIVITY, value) }
+        _touchpadSensitivity.value = value
+    }
+
     companion object {
         private const val PREFS_NAME = "keyforge.settings"
         private const val KEY_MODIFIER_LATCH = "modifier_latch"
@@ -108,6 +123,7 @@ internal class KeyboardSettings private constructor(context: Context) {
         private const val KEY_FULLSCREEN = "fullscreen"
         private const val KEY_LAYOUT_ID = "layout_id"
         private const val KEY_THEME_ID = "theme_id"
+        private const val KEY_TOUCHPAD_SENSITIVITY = "touchpad_sensitivity"
 
         @Volatile
         private var instance: KeyboardSettings? = null
@@ -116,5 +132,26 @@ internal class KeyboardSettings private constructor(context: Context) {
             instance ?: synchronized(this) {
                 instance ?: KeyboardSettings(context).also { instance = it }
             }
+    }
+}
+
+/**
+ * Pointer speed levels for the touchpad, in display order. The settings row
+ * cycles through them; the value is the multiplier the touchpad engine applies
+ * to finger travel.
+ */
+internal enum class TouchpadSensitivity(val value: Float) {
+    SLOW(0.6f),
+    NORMAL(1.0f),
+    FAST(1.6f),
+    ;
+
+    /** The level after this one, wrapping around. */
+    fun next(): TouchpadSensitivity = entries[(ordinal + 1) % entries.size]
+
+    companion object {
+        /** The level whose multiplier is [value]; stale saved values degrade to [NORMAL]. */
+        fun fromValue(value: Float): TouchpadSensitivity =
+            entries.firstOrNull { it.value == value } ?: NORMAL
     }
 }

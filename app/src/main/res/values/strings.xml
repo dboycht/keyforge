@@ -96,4 +96,20 @@
     <string name="session_text_starting">正在启动会话…</string>
     <string name="session_action_disconnect">断开</string>
     <string name="session_action_stop">停止</string>
+
+    <!-- Touchpad mode (T7): pointer surface + media keys -->
+    <string name="keyboard_touchpad">触摸板</string>
+    <string name="keyboard_touchpad_back">键盘</string>
+    <string name="keyboard_touchpad_hint">单指滑动移动 · 单指点按=左键\n双指点按=右键 · 双指滑动=滚轮\n按住再拖=左键拖选</string>
+    <string name="keyboard_touchpad_sensitivity">指针灵敏度</string>
+    <string name="keyboard_touchpad_sensitivity_hint">当前：%1$s（点按切换 慢/中/快）</string>
+    <string name="touchpad_sensitivity_slow">慢</string>
+    <string name="touchpad_sensitivity_normal">中</string>
+    <string name="touchpad_sensitivity_fast">快</string>
+    <string name="touchpad_key_mute">静音</string>
+    <string name="touchpad_key_volume_down">音量−</string>
+    <string name="touchpad_key_volume_up">音量+</string>
+    <string name="touchpad_key_play_pause">播放/暂停</string>
+    <string name="touchpad_key_prev">上一曲</string>
+    <string name="touchpad_key_next">下一曲</string>
 </resources>
