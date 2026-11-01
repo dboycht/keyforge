@@ -8,7 +8,8 @@ package com.dboycht.keyforge.hid
  * [KeyboardState], which produces new reports. Keeping the two apart is what
  * makes the whole path unit-testable without a Bluetooth stack.
  *
- * Report layout (matches the descriptor in `ProbeConstants.KEYBOARD_REPORT_DESCRIPTOR`):
+ * Report layout (Report ID 1 in `ProbeConstants.REPORT_DESCRIPTOR`; the body
+ * below is what `sendReport` receives - the platform prepends the ID byte):
  *
  * ```
  * byte 0: modifier bitmap (see [Modifier])

@@ -341,8 +341,8 @@ internal object BluetoothHidProbe {
             ProbeConstants.SDP_NAME,
             ProbeConstants.SDP_DESCRIPTION,
             ProbeConstants.SDP_PROVIDER,
-            ProbeConstants.SDP_SUBCLASS_KEYBOARD,
-            ProbeConstants.KEYBOARD_REPORT_DESCRIPTOR,
+            ProbeConstants.SDP_SUBCLASS_COMBO,
+            ProbeConstants.REPORT_DESCRIPTOR,
         )
 
         val usedApi = if (Build.VERSION.SDK_INT >= 34) {

@@ -12,8 +12,12 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.dboycht.keyforge.hid.ConsumerReport
+import com.dboycht.keyforge.hid.ConsumerUsage
 import com.dboycht.keyforge.hid.HidReport
 import com.dboycht.keyforge.hid.KeyboardState
+import com.dboycht.keyforge.hid.MouseReport
+import com.dboycht.keyforge.hid.MouseState
 import com.dboycht.keyforge.probe.ProbeConstants
 import com.dboycht.keyforge.text.KeySink
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -96,6 +100,7 @@ internal class HidSession(
 
     private val executor: Executor = Executors.newSingleThreadExecutor()
     private val keyboard = KeyboardState()
+    private val mouse = MouseState()
     private val throttle = ReportThrottle(clock)
     private val events = ArrayDeque<String>()
 
@@ -246,8 +251,8 @@ internal class HidSession(
             ProbeConstants.SDP_NAME,
             ProbeConstants.SDP_DESCRIPTION,
             ProbeConstants.SDP_PROVIDER,
-            ProbeConstants.SDP_SUBCLASS_KEYBOARD,
-            ProbeConstants.KEYBOARD_REPORT_DESCRIPTOR,
+            ProbeConstants.SDP_SUBCLASS_COMBO,
+            ProbeConstants.REPORT_DESCRIPTOR,
         )
         val result = runCatching { hid.registerApp(settings, null, null, executor, callback) }
         val returned = result.getOrDefault(false)
@@ -404,17 +409,131 @@ internal class HidSession(
         return SessionResult.Ok("released 0x%02X".format(usage))
     }
 
-    /** Sends the "all keys up" report to every connected host: clears stuck keys. */
-    fun releaseAll(): SessionResult {        val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
+    /**
+     * Sends "everything up" to every connected host: keyboard keys, mouse
+     * buttons and any consumer code - clears stuck input on all three reports.
+     */
+    fun releaseAll(): SessionResult {
+        val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
         val targets = deviceTargets()
         if (targets.isEmpty()) return SessionResult.Rejected("no host connected")
         val ok: Boolean
         synchronized(reportLock) {
-            val report = keyboard.releaseAll()
-            ok = targets.all { send(hid, it, report) }
+            val keyboardReport = keyboard.releaseAll()
+            val mouseReport = mouse.releaseAll()
+            ok = targets.all { device ->
+                send(hid, device, keyboardReport) &&
+                    send(hid, device, REPORT_ID_MOUSE, mouseReport.toByteArray()) &&
+                    send(hid, device, REPORT_ID_CONSUMER, ConsumerReport.idle().toByteArray())
+            }
         }
         event("releaseAll -> $ok")
         return if (ok) SessionResult.Ok("all keys released") else SessionResult.Rejected("sendReport failed")
+    }
+
+    // ---------- mouse (Report ID 2) ----------
+
+    /**
+     * Moves the pointer by a relative delta (HID counts; sensitivity conversion
+     * happens in the touchpad engine, not here). Buttons stay as they are.
+     */
+    fun moveMouse(x: Int, y: Int): SessionResult {
+        if (x == 0 && y == 0) return SessionResult.Ok("no movement")
+        return sendMouse("move($x,$y)") { move(x, y) }
+    }
+
+    /** Scrolls the wheel by [wheel] ticks (positive = away from the user). */
+    fun scrollWheel(wheel: Int): SessionResult {
+        if (wheel == 0) return SessionResult.Ok("no scroll")
+        return sendMouse("wheel($wheel)") { scroll(wheel) }
+    }
+
+    /** Presses a mouse button and leaves it held; pair with [releaseMouseButton]. */
+    fun pressMouseButton(button: Int): SessionResult {
+        if (!MouseReport.Button.isValid(button)) {
+            return SessionResult.Rejected("not a single button bit: 0x%02X".format(button))
+        }
+        return sendMouse("down ${MouseReport.Button.nameFor(button)}") { press(button) }
+    }
+
+    /** Releases a mouse button previously pressed with [pressMouseButton]. */
+    fun releaseMouseButton(button: Int): SessionResult {
+        if (!MouseReport.Button.isValid(button)) {
+            return SessionResult.Rejected("not a single button bit: 0x%02X".format(button))
+        }
+        return sendMouse("up   ${MouseReport.Button.nameFor(button)}") { release(button) }
+    }
+
+    /**
+     * Taps a mouse button: down report, throttle gap, up report - nothing left
+     * held. This is what a touchpad tap needs (one tap = one click).
+     */
+    fun tapMouseButton(button: Int): SessionResult {
+        if (!MouseReport.Button.isValid(button)) {
+            return SessionResult.Rejected("not a single button bit: 0x%02X".format(button))
+        }
+        val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
+        val targets = deviceTargets()
+        if (targets.isEmpty()) return SessionResult.Rejected("no host connected")
+        val down: Boolean
+        synchronized(reportLock) {
+            down = targets.all { send(hid, it, REPORT_ID_MOUSE, mouse.press(button).toByteArray()) }
+        }
+        awaitThrottleSlot()
+        val up: Boolean
+        synchronized(reportLock) {
+            up = targets.all { send(hid, it, REPORT_ID_MOUSE, mouse.release(button).toByteArray()) }
+        }
+        if (!down || !up) return SessionResult.Rejected("sendReport failed (see log)")
+        event("click ${MouseReport.Button.nameFor(button)}")
+        return SessionResult.Ok("clicked ${MouseReport.Button.nameFor(button)}")
+    }
+
+    // ---------- consumer / media keys (Report ID 3) ----------
+
+    /**
+     * Taps a consumer (media) key: usage report, throttle gap, all-zero release.
+     * Hosts key their repeat behaviour off "code still held", so a tap must not
+     * linger: one shot, one release.
+     */
+    fun tapConsumer(code: Int): SessionResult {
+        val report = runCatching { ConsumerReport.of(code) }.getOrElse { error ->
+            return SessionResult.Rejected(error.message ?: "bad consumer code")
+        }
+        val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
+        val targets = deviceTargets()
+        if (targets.isEmpty()) return SessionResult.Rejected("no host connected")
+        val down: Boolean
+        synchronized(reportLock) {
+            down = targets.all { send(hid, it, REPORT_ID_CONSUMER, report.toByteArray()) }
+        }
+        awaitThrottleSlot()
+        val up: Boolean
+        synchronized(reportLock) {
+            up = targets.all { send(hid, it, REPORT_ID_CONSUMER, ConsumerReport.idle().toByteArray()) }
+        }
+        if (!down || !up) return SessionResult.Rejected("sendReport failed (see log)")
+        event("consumer ${ConsumerUsage.nameFor(code)}")
+        return SessionResult.Ok("sent ${ConsumerUsage.nameFor(code)}")
+    }
+
+    /**
+     * Shared body of the "build report from [MouseState], then send" mouse calls.
+     * Mirrors [pressKey]: state mutation and send inside [reportLock], result
+     * reported through [event] with the caller's label.
+     */
+    private inline fun sendMouse(label: String, build: MouseState.() -> MouseReport): SessionResult {
+        val hid = proxy ?: return SessionResult.Rejected("profile proxy not ready")
+        val targets = deviceTargets()
+        if (targets.isEmpty()) return SessionResult.Rejected("no host connected")
+        val ok: Boolean
+        synchronized(reportLock) {
+            val report = mouse.build()
+            ok = targets.all { send(hid, it, REPORT_ID_MOUSE, report.toByteArray()) }
+        }
+        if (!ok) return SessionResult.Rejected("sendReport failed (see log)")
+        event("mouse $label")
+        return SessionResult.Ok(label)
     }
 
     /** Connected hosts as `BluetoothDevice`s (an empty list means "nothing to send to"). */
@@ -456,24 +575,40 @@ internal class HidSession(
         }
         proxy = null
         keyboard.releaseAll()
+        mouse.reset()
         throttle.reset()
         publish(phase = SessionPhase.Idle, connected = emptyList())
     }
 
     /**
-     * Sends one report to one host.
+     * Sends one keyboard report to one host.
      *
      * Wire format: [sendReport] takes the report ID separately, so the byte array
-     * is the report body only (modifier, reserved, 6 slots). The descriptor in
-     * [ProbeConstants.KEYBOARD_REPORT_DESCRIPTOR] declares no Report ID, which means
-     * the single report is addressed as ID [REPORT_ID].
+     * is the report body only (modifier, reserved, 6 slots), addressed as ID
+     * [REPORT_ID_KEYBOARD] in the composite descriptor.
      *
      * Verified against the platform jar: API 36 exposes
      * `sendReport(BluetoothDevice, int, byte[])`; there is no array+length overload.
      */
     private fun send(hid: BluetoothHidDevice, device: BluetoothDevice, report: HidReport): Boolean {
-        val bytes = report.toByteArray()
-        val ok = runCatching { hid.sendReport(device, REPORT_ID, bytes) }.getOrElse { error ->
+        return send(hid, device, REPORT_ID_KEYBOARD, report.toByteArray())
+    }
+
+    /**
+     * Sends one raw report body to one host under [reportId].
+     *
+     * AOSP contract (`BluetoothHidDevice.sendReport`): "@param data Report data,
+     * not including Report Id" - the platform stack prepends the ID byte on the
+     * wire. Callers therefore pass bodies only (`MouseReport` / `ConsumerReport`
+     * payloads), never ID-prefixed arrays.
+     */
+    private fun send(
+        hid: BluetoothHidDevice,
+        device: BluetoothDevice,
+        reportId: Int,
+        bytes: ByteArray,
+    ): Boolean {
+        val ok = runCatching { hid.sendReport(device, reportId, bytes) }.getOrElse { error ->
             event("sendReport threw ${error.javaClass.simpleName}: ${error.message}")
             false
         }
@@ -580,25 +715,30 @@ internal class HidSession(
         android.view.KeyEvent.keyCodeToString(keyCode)
     }.getOrDefault("keyCode=$keyCode")
 
-    private companion object {
-        const val MAX_EVENTS = 200
+    internal companion object {
+        private const val MAX_EVENTS = 200
 
         /** Quiet time after which an auto-repeat burst is summarised into one log line. */
-        const val BURST_IDLE_MS = 350L
+        private const val BURST_IDLE_MS = 350L
 
         /** How long to wait for onAppStatusChanged before assuming a stale registration. */
-        const val REGISTER_CONFIRM_DELAY_MS = 1_500L
+        private const val REGISTER_CONFIRM_DELAY_MS = 1_500L
 
         /** Gap between unregisterApp and the retry (kernel UHID teardown is async). */
-        const val REGISTER_RETRY_DELAY_MS = 700L
+        private const val REGISTER_RETRY_DELAY_MS = 700L
 
-        const val MAX_REGISTER_ATTEMPTS = 3
+        private const val MAX_REGISTER_ATTEMPTS = 3
 
         /**
-         * Report ID passed to `sendReport`. The descriptor declares no Report ID,
-         * so the single input report is ID 0. If the descriptor ever gains an
-         * explicit `0x85 nn`, this must become `nn`.
+         * Report IDs of the composite descriptor (`ProbeConstants.REPORT_DESCRIPTOR`,
+         * which declares one `0x85 nn` item per collection). `sendReport` receives
+         * the ID separately from the body - see the [send] overload. Report ID 0 is
+         * reserved by the HID spec and never used.
+         *
+         * `CompositeDescriptorTest` cross-checks these against the descriptor bytes.
          */
-        const val REPORT_ID = 0
+        internal const val REPORT_ID_KEYBOARD = 1
+        internal const val REPORT_ID_MOUSE = 2
+        internal const val REPORT_ID_CONSUMER = 3
     }
 }
