@@ -30,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -213,7 +214,11 @@ internal fun KeyboardView(
     // Auto-repeat runs in the composable's own scope, so the gesture code below only
     // reports press/release and never has to manage coroutines.
     val gestureScope = rememberCoroutineScope()
-    var repeatJob by remember(layout.id) { mutableStateOf<Job?>(null) }
+    // Auto-repeat keep-alive loops, ONE PER KEY (ERROR.md E22): a single shared Job
+    // meant any key's press or release cancelled ANOTHER held key's loop - with two
+    // keys down, the first lost its keep-alive and release order killed the wrong
+    // loop. Keyed by keyCode; every held key owns its ticker exclusively.
+    val repeatJobs = remember(layout.id) { mutableMapOf<Int, Job>() }
 
     // The click. Created once per screen and released with it; the audio engine inside is loaded
     // lazily on the first click the user actually hears. The context is read *outside* the `remember`
@@ -333,12 +338,12 @@ internal fun KeyboardView(
                                     }
                                 } else {
                                     pressed = pressed + key.keyCode
-                                    repeatJob?.cancel()
-                                    repeatJob = null
 
                                     when (key.repeatMode) {
                                         // One keystroke per touch. Used by keys where repeating is
-                                        // meaningless (and by any layout that opts out).
+                                        // meaningless (and by any layout that opts out). Deliberately
+                                        // touches no repeat job: cancelling one here used to kill
+                                        // ANOTHER held key's keep-alive loop (ERROR.md E22).
                                         RepeatMode.ONESHOT -> onKeyTap(key)
 
                                         // Physical-keyboard behaviour, and the fix for "held keys
@@ -363,7 +368,9 @@ internal fun KeyboardView(
                                                 onUp = { onKeyUp(key) },
                                             )
                                             repeater.press()
-                                            repeatJob = gestureScope.launch {
+                                            // Replace only THIS key's loop; other held keys keep theirs.
+                                            repeatJobs.remove(key.keyCode)?.cancel()
+                                            repeatJobs[key.keyCode] = gestureScope.launch {
                                                 while (isActive) {
                                                     delay(KEEP_ALIVE_TICK_MS)
                                                     repeater.advance(KEEP_ALIVE_TICK_MS)
@@ -374,8 +381,9 @@ internal fun KeyboardView(
                                 }
                             },
                             onPressEnd = {
-                                repeatJob?.cancel()
-                                repeatJob = null
+                                // Only THIS key's loop; the old shared `repeatJob` let one key's
+                                // release cancel another held key's keep-alive (ERROR.md E22).
+                                repeatJobs.remove(key.keyCode)?.cancel()
                                 pressed = pressed - key.keyCode
                                 if (isModifier) {
                                     // Physical-keyboard modifier: releasing the finger releases
@@ -441,40 +449,57 @@ private fun RowScope.KeyBox(
             .fillMaxHeight()
             .background(background, RoundedCornerShape(6.dp))
             .pointerInput(key.keyCode) {
-                // Raw pointer handling instead of detectTapGestures.
+                // Per-key pointer tracking instead of `changes.first { it.pressed }`.
                 //
-                // Why: detectTapGestures reports "the press ended" by CANCELLING the
-                // onPress coroutine, and clearing the highlight in a `finally` there
-                // proved unreliable for quick taps (measured: a 150 ms press left the
-                // key stuck lit, while 600 ms+ was fine). Here the release is an
-                // explicit branch in the same code path as the press, so the highlight
-                // is cleared by a normal statement - no cancellation semantics involved.
+                // Why: a Compose PointerEvent carries EVERY active pointer on the screen,
+                // ordered by when the fingers went down. With another finger already
+                // holding a key (Shift, or a game movement key), "first pressed" picked
+                // THE OTHER KEY's finger - the letter then released when Shift lifted,
+                // so the host typed AAAA..., and two held game keys released each other
+                // wrongly. The tracker binds this key to the pointer that actually
+                // landed inside its bounds and releases exactly that pointer (E22).
+                //
+                // Press and release are both normal statements in the same loop - never
+                // a cancellation side effect (ERROR.md E10) - and the finally below only
+                // covers the pointer stream being torn down underneath us.
                 awaitPointerEventScope {
-                    while (true) {
-                        val down = awaitPointerEvent()
-                        if (down.changes.none { it.pressed }) continue
-
-                        // The buzz and the click happen on the press, once each: the keep-alive
-                        // re-sends that follow a held key are not new presses and must not repeat
-                        // them (a 50ms cadence of vibration and clicks would be a bug, not feedback).
-                        if (haptics) {
-                            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
-                        }
-                        onClickSound?.invoke()
-                        onPressStart()
-                        val pointerId = down.changes.first { it.pressed }.id
-                        try {
-                            // Stay until this pointer lifts.
-                            while (true) {
-                                val move = awaitPointerEvent()
-                                if (move.changes.none { it.id == pointerId && it.pressed }) break
+                    val tracker = KeyTouchTracker(size.width.toFloat(), size.height.toFloat())
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val changes = event.changes.map { input ->
+                                KeyTouchTracker.Change(
+                                    id = input.id.value,
+                                    pressed = input.pressed,
+                                    changedToDown = input.changedToDown(),
+                                    x = input.position.x,
+                                    y = input.position.y,
+                                )
                             }
-                        } finally {
-                            // Normal statement, not a cancellation side effect: this is
-                            // the fix for "the key stays lit" (ERROR.md E10).
-                            onPressEnd()
-                            traceKeyHighlightEnd(key.keyCode)
+                            for (action in tracker.onEvent(changes)) {
+                                when (action) {
+                                    KeyTouchTracker.Action.Press -> {
+                                        // The buzz and the click happen on the press, once each: the
+                                        // keep-alive re-sends that follow a held key are not new
+                                        // presses and must not repeat them (a 50ms cadence of
+                                        // vibration and clicks would be a bug, not feedback).
+                                        if (haptics) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                                        }
+                                        onClickSound?.invoke()
+                                        onPressStart()
+                                    }
+                                    KeyTouchTracker.Action.Release -> {
+                                        onPressEnd()
+                                        traceKeyHighlightEnd(key.keyCode)
+                                    }
+                                }
+                            }
                         }
+                    } finally {
+                        // The stream is gone (layout switch, IME covering the grid): a key
+                        // that was held must not stay held host-side.
+                        if (tracker.onCancel().isNotEmpty()) onPressEnd()
                     }
                 }
             },
