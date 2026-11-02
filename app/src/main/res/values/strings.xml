@@ -24,6 +24,7 @@
     <string name="keyboard_sound">按键音</string>
     <string name="keyboard_theme">配色</string>
     <string name="about_title">关于键铸</string>
+    <string name="about_short">关于</string>
     <string name="about_open">查看</string>
     <string name="about_version">版本</string>
     <string name="keyboard_fullscreen">全屏键盘</string>

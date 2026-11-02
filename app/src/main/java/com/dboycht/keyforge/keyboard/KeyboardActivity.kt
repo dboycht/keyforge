@@ -11,6 +11,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -1271,6 +1273,7 @@ private fun FullscreenBar(
     onRequestTextInput: () -> Unit,
 ) {
     var choosingLayout by remember { mutableStateOf(false) }
+    var showAbout by remember { mutableStateOf(false) }
     val connected = state.connectedDevices
 
     Row(
@@ -1291,72 +1294,94 @@ private fun FullscreenBar(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        OutlinedButton(
-            onClick = { onTogglePanel(FullscreenPanel.DEVICES) },
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-            modifier = Modifier.height(28.dp),
+        // The buttons live in their own strip: seven of them no longer fit a portrait
+        // row next to the status text, so the strip scrolls horizontally instead of
+        // silently clipping the last button. When everything fits it does not scroll
+        // and looks exactly like the flat row it used to be.
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = stringResource(R.string.keyboard_panel_devices),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        OutlinedButton(
-            onClick = { choosingLayout = true },
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-            modifier = Modifier.height(28.dp),
-        ) {
-            Text(layout.displayName, style = MaterialTheme.typography.bodySmall)
-        }
-        OutlinedButton(
-            onClick = { onTogglePanel(FullscreenPanel.SETTINGS) },
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-            modifier = Modifier.height(28.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.keyboard_panel_settings),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        // The way into text forwarding: raising the system keyboard hides our grid and shows the
-        // forwarding box, so the user can type with their own IME.
-        OutlinedButton(
-            onClick = onRequestTextInput,
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-            modifier = Modifier.height(28.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.forward_section_short),
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        // The touchpad toggle: the button label names what you get when you press
-        // it (触摸板 → the pointer surface; 键盘 → back to the grid).
-        OutlinedButton(
-            onClick = onToggleTouchpad,
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-            modifier = Modifier.height(28.dp),
-        ) {
-            Text(
-                text = if (touchpadMode) {
-                    stringResource(R.string.keyboard_touchpad_back)
-                } else {
-                    stringResource(R.string.keyboard_touchpad)
-                },
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-        // The escape hatch stays visible rather than living in a menu: a full screen
-        // mode the user cannot leave is a trap.
-        Button(
-            onClick = onExitFullscreen,
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-            modifier = Modifier.height(28.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.keyboard_exit_fullscreen),
-                style = MaterialTheme.typography.bodySmall,
-            )
+            OutlinedButton(
+                onClick = { onTogglePanel(FullscreenPanel.DEVICES) },
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.keyboard_panel_devices),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            OutlinedButton(
+                onClick = { choosingLayout = true },
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp),
+            ) {
+                Text(layout.displayName, style = MaterialTheme.typography.bodySmall)
+            }
+            OutlinedButton(
+                onClick = { onTogglePanel(FullscreenPanel.SETTINGS) },
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.keyboard_panel_settings),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            // One-tap access to the About dialog: it used to live at the very end of
+            // the settings rows, which is several taps deep on the screen you stare at.
+            OutlinedButton(
+                onClick = { showAbout = true },
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.about_short),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            // The way into text forwarding: raising the system keyboard hides our grid and shows the
+            // forwarding box, so the user can type with their own IME.
+            OutlinedButton(
+                onClick = onRequestTextInput,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.forward_section_short),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            // The touchpad toggle: the button label names what you get when you press
+            // it (触摸板 → the pointer surface; 键盘 → back to the grid).
+            OutlinedButton(
+                onClick = onToggleTouchpad,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp),
+            ) {
+                Text(
+                    text = if (touchpadMode) {
+                        stringResource(R.string.keyboard_touchpad_back)
+                    } else {
+                        stringResource(R.string.keyboard_touchpad)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            // The escape hatch stays visible rather than living in a menu: a full screen
+            // mode the user cannot leave is a trap.
+            Button(
+                onClick = onExitFullscreen,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                modifier = Modifier.height(28.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.keyboard_exit_fullscreen),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
     }
 
@@ -1369,6 +1394,10 @@ private fun FullscreenBar(
             },
             onDismiss = { choosingLayout = false },
         )
+    }
+
+    if (showAbout) {
+        AboutDialog(onDismiss = { showAbout = false })
     }
 }
 
